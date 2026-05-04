@@ -1,21 +1,113 @@
 from dataclasses import dataclass
 
 import structlog
+from tree_sitter import Language, Parser
+import tree_sitter_python as tspython
 
 log = structlog.get_logger()
+
+PY_LANGUAGE = Language(tspython.language())
+_parser = Parser(PY_LANGUAGE)
+
+EXTRACT_NODE_TYPES = {
+    "function_definition",
+    "class_definition",
+}
 
 
 @dataclass
 class ChunkData:
-    """
-    Represents one chunk of a file.
-    Dataclass gives us a clean object with typed fields
-    instead of passing dicts everywhere.
-    """
     file_path: str
     start_line: int
     end_line: int
     content: str
+
+
+def _chunk_python_ast(
+    file_path: str,
+    content: str,
+    min_lines: int = 2,
+) -> list[ChunkData]:
+    try:
+        tree = _parser.parse(content.encode("utf-8"))
+    except Exception as e:
+        log.warning("ast_parse_failed", file=file_path, error=str(e))
+        return _chunk_lines(file_path, content)
+
+    chunks: list[ChunkData] = []
+    lines = content.splitlines()
+
+    def visit(node) -> None:
+        # print(f"visiting: {node.type} lines {node.start_point[0]+1}-{node.end_point[0]+1}")
+        if node.type in EXTRACT_NODE_TYPES:
+            start_line = node.start_point[0]
+            end_line = node.end_point[0]
+
+            if (end_line - start_line + 1) < min_lines:
+                return
+
+            chunk_content = "\n".join(lines[start_line:end_line + 1])
+
+            if chunk_content.strip():
+                chunks.append(ChunkData(
+                    file_path=file_path,
+                    start_line=start_line + 1,
+                    end_line=end_line + 1,
+                    content=chunk_content,
+                ))
+            return
+
+        for child in node.children:
+            visit(child)
+
+    visit(tree.root_node)
+
+    if not chunks:
+        log.info("ast_no_chunks_fallback", file=file_path)
+        return _chunk_lines(file_path, content)
+
+    return chunks
+
+
+def _chunk_lines(
+    file_path: str,
+    content: str,
+    chunk_size: int = 40,
+    overlap: int = 5,
+) -> list[ChunkData]:
+    lines = content.splitlines()
+    total_lines = len(lines)
+
+    if total_lines <= chunk_size:
+        return [ChunkData(
+            file_path=file_path,
+            start_line=1,
+            end_line=total_lines,
+            content=content,
+        )]
+
+    chunks: list[ChunkData] = []
+    start = 0
+
+    while start < total_lines:
+        end = min(start + chunk_size, total_lines)
+        chunk_content = "\n".join(lines[start:end])
+
+        if chunk_content.strip():
+            chunks.append(ChunkData(
+                file_path=file_path,
+                start_line=start + 1,
+                end_line=end,
+                content=chunk_content,
+            ))
+
+        step = chunk_size - overlap
+        start += step
+
+        if start >= total_lines:
+            break
+
+    return chunks
 
 
 def chunk_file(
@@ -24,65 +116,9 @@ def chunk_file(
     chunk_size: int = 40,
     overlap: int = 5,
 ) -> list[ChunkData]:
-    """
-    Split file content into overlapping chunks.
-
-    Example with chunk_size=5, overlap=2 on a 12-line file:
-        Chunk 1: lines 1-5
-        Chunk 2: lines 4-8   (overlaps 2 lines with chunk 1)
-        Chunk 3: lines 7-11  (overlaps 2 lines with chunk 2)
-        Chunk 4: lines 10-12 (last chunk, may be smaller)
-
-    Overlap preserves context at chunk boundaries — a function
-    call at line 40 and its definition at line 41 won't be
-    split into completely separate chunks.
-    """
-    lines = content.splitlines()
-    total_lines = len(lines)
-
-    # Single chunk if file is smaller than chunk_size
-    if total_lines <= chunk_size:
-        return [
-            ChunkData(
-                file_path=file_path,
-                start_line=1,
-                end_line=total_lines,
-                content=content,
-            )
-        ]
-
-    chunks: list[ChunkData] = []
-    start = 0  # 0-indexed line position
-
-    while start < total_lines:
-        end = min(start + chunk_size, total_lines)
-
-        chunk_lines = lines[start:end]
-        chunk_content = "\n".join(chunk_lines)
-
-        # Only add non-empty chunks
-        if chunk_content.strip():
-            chunks.append(
-                ChunkData(
-                    file_path=file_path,
-                    start_line=start + 1,   # convert to 1-indexed
-                    end_line=end,            # end is already 1-indexed
-                    content=chunk_content,
-                )
-            )
-
-        # Move forward by chunk_size minus overlap
-        # This is what creates the sliding window effect
-        step = chunk_size - overlap
-        start += step
-
-        # If we're near the end and the remaining lines
-        # are smaller than overlap, stop — we already
-        # covered those lines in the previous chunk
-        if start >= total_lines:
-            break
-
-    return chunks
+    if file_path.endswith(".py"):
+        return _chunk_python_ast(file_path, content)
+    return _chunk_lines(file_path, content, chunk_size, overlap)
 
 
 def chunk_files(
@@ -90,11 +126,6 @@ def chunk_files(
     chunk_size: int = 40,
     overlap: int = 5,
 ) -> list[ChunkData]:
-    """
-    Chunk all files from the file walker.
-    Accepts the list of dicts returned by walk_files().
-    Returns a flat list of all chunks across all files.
-    """
     all_chunks: list[ChunkData] = []
 
     for file in files:
