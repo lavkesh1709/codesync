@@ -1,0 +1,32 @@
+# Environment — NEVER commit real secrets
+.env
+
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Testing
+.pytest_cache/
+.coverage
+
+# Type checking
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# uv
+uv.lock
+
+# Temp files
+/tmp/
