@@ -129,3 +129,29 @@ async def get_repo(
     stmt = select(Repo).where(Repo.repo_id == repo_id)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
+
+async def get_all_chunks_for_repo(
+    db: AsyncSession,
+    repo_id: str,
+) -> Sequence[Chunk]:
+    """
+    Fetch all chunks for a repo to build BM25 index in memory.
+    Called once per query — results used to build BM25 index.
+    """
+    stmt = select(Chunk).where(Chunk.repo_id == repo_id)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+async def get_chunks_by_ids(
+    db: AsyncSession,
+    chunk_ids: list[uuid.UUID],
+) -> Sequence[Chunk]:
+    """
+    Fetch specific chunks by their IDs.
+    Used after BM25 scoring to retrieve the actual chunk objects
+    for the top-ranked results.
+    """
+    stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
+    result = await db.execute(stmt)
+    return result.scalars().all()

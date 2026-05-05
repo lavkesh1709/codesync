@@ -17,6 +17,7 @@ from app.db.repositories.chunks import (
 )
 from app.db.session import get_db
 from app.config import settings
+from app.core.retrieval.searcher import invalidate_bm25_cache
 
 log = structlog.get_logger()
 
@@ -87,6 +88,8 @@ async def ingest(
             files_processed=len(files),
             chunks_created=chunks_created,
         )
+        # Invalidate BM25 cache so next query rebuilds with fresh chunks
+        invalidate_bm25_cache(request.repo_id)
 
         duration = round(time.monotonic() - start, 2)
         log.info(
