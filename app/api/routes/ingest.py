@@ -1,23 +1,11 @@
-import time
-
 import structlog
+from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.ingestion.chunker import chunk_files
-from app.core.ingestion.cloner import cleanup_repo, clone_repo
-from app.core.ingestion.embedder import embed_chunks
-from app.core.ingestion.file_walker import walk_files
-from app.db.repositories.chunks import (
-    delete_repo,
-    insert_chunks,
-    insert_repo,
-    update_repo,
-)
+from app.core.ingestion.tasks import celery_app, ingest_repo_task
 from app.db.session import get_db
-from app.config import settings
-from app.core.retrieval.searcher import invalidate_bm25_cache
 
 log = structlog.get_logger()
 
@@ -30,11 +18,21 @@ class IngestRequest(BaseModel):
 
 
 class IngestResponse(BaseModel):
+    job_id: str
     repo_id: str
     status: str
-    files_processed: int
-    chunks_created: int
-    duration_seconds: float
+    message: str
+
+
+class StatusResponse(BaseModel):
+    job_id: str
+    repo_id: str
+    status: str
+    step: str | None = None
+    files_processed: int | None = None
+    chunks_created: int | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
 
 
 @router.post("/ingest", response_model=IngestResponse)
@@ -43,78 +41,55 @@ async def ingest(
     db: AsyncSession = Depends(get_db),
 ) -> IngestResponse:
     """
-    Clone a repository, chunk it, embed it, and store in Postgres.
-
-    Idempotent: if repo_id already exists, old data is deleted first.
-    The API waits until indexing is complete before responding (phase 1).
-    Phase 2 will make this async with a job_id pattern.
+    Queue a repository for ingestion.
+    Returns a job_id immediately — use /ingest/{job_id}/status to poll.
     """
-    start = time.monotonic()
-    log.info("ingest_request", repo_id=request.repo_id, repo_url=request.repo_url)
+    log.info("ingest_queued", repo_id=request.repo_id, repo_url=request.repo_url)
 
-    # Idempotency — delete existing data for this repo_id before re-indexing
-    # ON DELETE CASCADE in the schema removes all chunks automatically
-    await delete_repo(db, request.repo_id)
+    task = ingest_repo_task.delay(request.repo_url, request.repo_id)
 
-    # Create repo record with status 'indexing'
-    await insert_repo(db, request.repo_id, request.repo_url)
+    return IngestResponse(
+        job_id=task.id,
+        repo_id=request.repo_id,
+        status="queued",
+        message="Ingestion queued. Poll /api/v1/ingest/{job_id}/status for progress.",
+    )
 
-    repo_path = None
-    try:
-        # Step 1 — Clone
-        repo_path = await clone_repo(request.repo_url, request.repo_id)
 
-        # Step 2 — Walk files
-        files = walk_files(repo_path, settings.max_file_size_mb)
+@router.get("/ingest/{job_id}/status", response_model=StatusResponse)
+@router.get("/ingest/{job_id}/status", response_model=StatusResponse)
+async def ingest_status(
+    job_id: str,
+    repo_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> StatusResponse:
+    """
+    Poll the status of an ingestion job.
+    Checks Celery for live progress, falls back to DB for final state.
+    """
+    from app.db.repositories.chunks import get_repo
 
-        # Step 3 — Chunk
-        chunks = chunk_files(
-            files,
-            chunk_size=settings.chunk_size_lines,
-            overlap=settings.chunk_overlap_lines,
+    # Check Celery result first for live progress updates
+    result = AsyncResult(job_id, app=celery_app)
+
+    if result.state == "PROGRESS":
+        meta = result.info or {}
+        return StatusResponse(
+            job_id=job_id,
+            repo_id=repo_id,
+            status="processing",
+            step=meta.get("step"),
         )
 
-        # Step 4 — Embed
-        embedded = embed_chunks(chunks)
+    # Fall back to database — always accurate for completed/failed
+    repo = await get_repo(db, repo_id)
+    if repo is None:
+        return StatusResponse(job_id=job_id, repo_id=repo_id, status="queued")
 
-        # Step 5 — Store
-        chunks_created = await insert_chunks(db, request.repo_id, embedded)
-
-        # Update repo record to completed
-        await update_repo(
-            db,
-            request.repo_id,
-            status="completed",
-            files_processed=len(files),
-            chunks_created=chunks_created,
-        )
-        # Invalidate BM25 cache so next query rebuilds with fresh chunks
-        invalidate_bm25_cache(request.repo_id)
-
-        duration = round(time.monotonic() - start, 2)
-        log.info(
-            "ingest_complete",
-            repo_id=request.repo_id,
-            files=len(files),
-            chunks=chunks_created,
-            duration_seconds=duration,
-        )
-
-        return IngestResponse(
-            repo_id=request.repo_id,
-            status="completed",
-            files_processed=len(files),
-            chunks_created=chunks_created,
-            duration_seconds=duration,
-        )
-
-    except Exception as e:
-        # Mark repo as failed so the user knows something went wrong
-        await update_repo(db, request.repo_id, status="failed")
-        log.error("ingest_failed", repo_id=request.repo_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        # Always clean up the temp clone — even if something failed
-        if repo_path is not None:
-            cleanup_repo(repo_path)
+    return StatusResponse(
+        job_id=job_id,
+        repo_id=repo_id,
+        status=repo.status,
+        files_processed=repo.files_processed,
+        chunks_created=repo.chunks_created,
+    )

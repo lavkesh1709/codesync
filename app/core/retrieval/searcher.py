@@ -12,7 +12,6 @@ from app.db.repositories.chunks import (
 
 log = structlog.get_logger()
 
-# Add this near the top after imports
 from rank_bm25 import BM25Okapi
 
 # In-memory BM25 cache: repo_id → (BM25Okapi index, list of chunks)
