@@ -11,8 +11,8 @@ const QUICK_QUESTIONS = [
   'How does exception handling work?',
 ]
 
-export default function QueryPage() {
-  const [repoId, setRepoId] = useState('fastapi-main')
+export default function QueryPage({ defaultRepoId }) {
+  const [repoId, setRepoId] = useState(defaultRepoId || 'fastapi-main')
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
   const [sources, setSources] = useState([])

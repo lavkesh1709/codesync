@@ -6,6 +6,18 @@ import { checkHealth } from './api/codesync'
 
 export default function App() {
   const [serverStatus, setServerStatus] = useState('connecting...')
+  
+  // Shared state — persists across tab switches
+  const [ingestState, setIngestState] = useState({
+    repoUrl: '',
+    repoId: '',
+    status: null,
+    logs: [{ time: '--:--:--', msg: 'CodeSync ready. Paste a GitHub URL and click Index.', type: 'info' }],
+    progress: 0,
+    loading: false,
+  })
+  
+  const [lastIndexedRepo, setLastIndexedRepo] = useState('fastapi-main')
 
   useEffect(() => {
     checkHealth()
@@ -15,8 +27,6 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
-
-      {/* Header */}
       <header style={{
         borderBottom: '1px solid var(--border)',
         padding: '0 32px',
@@ -39,7 +49,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Nav */}
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '0 32px', display: 'flex' }}>
         {[
           { to: '/', label: '01 / Index Repository' },
@@ -62,14 +71,20 @@ export default function App() {
         ))}
       </nav>
 
-      {/* Pages */}
       <main style={{ maxWidth: '1100px', margin: '0 auto', padding: '40px 32px' }}>
         <Routes>
-          <Route path="/" element={<IngestPage />} />
-          <Route path="/query" element={<QueryPage />} />
+          <Route path="/" element={
+            <IngestPage 
+              state={ingestState} 
+              setState={setIngestState}
+              onComplete={(repoId) => setLastIndexedRepo(repoId)}
+            />} 
+          />
+          <Route path="/query" element={
+            <QueryPage defaultRepoId={lastIndexedRepo} />
+          } />
         </Routes>
       </main>
-
     </div>
   )
 }

@@ -2,15 +2,15 @@ import { useState, useRef, useEffect } from 'react'
 import { ingestRepo, getIngestStatus } from '../api/codesync'
 import './styles.css'
 
-export default function IngestPage() {
-  const [repoUrl, setRepoUrl] = useState('')
-  const [repoId, setRepoId] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [status, setStatus] = useState(null)
-  const [progress, setProgress] = useState(0)
-  const [logs, setLogs] = useState([
-    { time: '--:--:--', msg: 'CodeSync ready. Paste a GitHub URL and click Index.', type: 'info' }
-  ])
+export default function IngestPage({ state, setState, onComplete }) {
+  const { repoUrl, repoId, loading, status, logs, progress } = state
+
+  const setRepoUrl = val => setState(prev => ({ ...prev, repoUrl: val }))
+  const setRepoId = val => setState(prev => ({ ...prev, repoId: val }))
+  const setLoading = val => setState(prev => ({ ...prev, loading: val }))
+  const setStatus = val => setState(prev => ({ ...prev, status: val }))
+  const setProgress = val => setState(prev => ({ ...prev, progress: val }))
+
   const pollRef = useRef(null)
   const logRef = useRef(null)
 
@@ -20,7 +20,7 @@ export default function IngestPage() {
 
   const addLog = (msg, type = 'info') => {
     const time = new Date().toTimeString().slice(0, 8)
-    setLogs(prev => [...prev, { time, msg, type }])
+    setState(prev => ({ ...prev, logs: [...prev.logs, { time, msg, type }] }))
   }
 
   const PRESETS = [
@@ -68,6 +68,7 @@ export default function IngestPage() {
           addLog(`✓ Complete — ${data.files_processed} files, ${data.chunks_created} chunks indexed`)
           setStatus('completed')
           setLoading(false)
+          onComplete(repoId)
         } else if (data.status === 'failed') {
           clearInterval(pollRef.current)
           addLog('Indexing failed', 'error')
