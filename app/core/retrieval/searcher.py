@@ -14,6 +14,16 @@ log = structlog.get_logger()
 
 from rank_bm25 import BM25Okapi
 
+from sentence_transformers import CrossEncoder
+
+# Load cross-encoder once at startup — same singleton pattern as embedder
+# This model scores (question, chunk) pairs directly
+# ms-marco is trained specifically for passage ranking tasks
+log.info("reranker_loading")
+_reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+log.info("reranker_ready")
+
+
 # In-memory BM25 cache: repo_id → (BM25Okapi index, list of chunks)
 # Built once per repo on first query, reused after
 _bm25_cache: dict[str, tuple[BM25Okapi, list]] = {}
@@ -63,6 +73,38 @@ def _reciprocal_rank_fusion(
     sorted_ids = sorted(scores.keys(), key=lambda cid: scores[cid], reverse=True)
     return [chunk_map[cid] for cid in sorted_ids]
 
+def _rerank(
+    question: str,
+    chunks: list[Chunk],
+    top_k: int,
+) -> list[Chunk]:
+    """
+    Rerank chunks using cross-encoder.
+    
+    Takes the question and each chunk content as a pair,
+    scores them together, returns top_k by score.
+    
+    The cross-encoder reads question AND chunk simultaneously
+    so it understands relevance much more precisely than
+    vector similarity alone.
+    """
+    if not chunks:
+        return []
+
+    # Build (question, chunk_content) pairs
+    pairs = [[question, chunk.content] for chunk in chunks]
+
+    # Score all pairs — returns array of relevance scores
+    scores = _reranker.predict(pairs)
+
+    # Sort chunks by score descending
+    scored = sorted(
+        zip(chunks, scores),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+
+    return [chunk for chunk, score in scored[:top_k]]
 
 async def _bm25_search(
     db: AsyncSession,
@@ -146,9 +188,12 @@ async def search(
         bm25_count=len(bm25_chunks),
     )
 
-    # Combine with RRF and return top_k
+    # Combine with RRF — get more candidates than top_k for reranking
     fused = _reciprocal_rank_fusion(vector_chunks, bm25_chunks)
-    retrieved = fused[:top_k]
+    candidates = fused[:top_k * 4]  # reranker needs more candidates
+
+    # Rerank candidates with cross-encoder for precise relevance scoring
+    retrieved = _rerank(question, candidates, top_k)
 
     # Expand context — fetch chunks from files that retrieved files import
     source_files = list({
