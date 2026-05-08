@@ -106,3 +106,69 @@ Question: {question}"""
     )
 
     return answer
+
+async def generate_stream(
+    question: str,
+    chunks: list[Chunk],
+):
+    """
+    Stream the answer from Groq word by word using SSE.
+    Yields text chunks as they arrive from the API.
+    Used by the /api/v2/query streaming endpoint.
+    """
+    if not chunks:
+        yield "I could not find relevant code in the indexed repository to answer this question."
+        return
+
+    context = _build_context(chunks)
+
+    user_message = f"""Context from the codebase:
+
+{context}
+
+Question: {question}"""
+
+    log.info("generation_stream_started", question=question[:80])
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        async with client.stream(
+            "POST",
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.groq_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": settings.groq_model,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                "max_tokens": 1024,
+                "temperature": 0.1,
+                "stream": True,  # ← tells Groq to stream
+            },
+        ) as response:
+            if response.status_code != 200:
+                yield f"Error: Groq API returned {response.status_code}"
+                return
+
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+
+                data = line[6:]  # strip "data: " prefix
+
+                if data == "[DONE]":
+                    break
+
+                try:
+                    import json
+                    chunk_data = json.loads(data)
+                    delta = chunk_data["choices"][0]["delta"]
+                    if "content" in delta and delta["content"]:
+                        yield delta["content"]
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
+
+    log.info("generation_stream_complete")

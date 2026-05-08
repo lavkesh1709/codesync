@@ -5,7 +5,7 @@ from fastapi.routing import APIRoute
 from app.api.routes.ingest import router as ingest_router
 from app.api.routes.query import router as query_router
 from app.config import settings
-
+from app.api.routes.query_v2 import router as query_v2_router
 
 def custom_generate_unique_id(route: APIRoute) -> str:
     if route.tags:
@@ -33,6 +33,8 @@ app = FastAPI(
 
 app.include_router(ingest_router, prefix="/api/v1", tags=["ingestion"])
 app.include_router(query_router, prefix="/api/v1", tags=["retrieval"])
+app.include_router(query_v2_router, prefix="/api/v2", tags=["retrieval-v2"])
+
 
 
 @app.get("/health")
