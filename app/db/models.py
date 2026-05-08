@@ -58,3 +58,23 @@ class Chunk(Base):
         server_default=func.now(),
     )
     
+
+class FileImport(Base):
+    __tablename__ = "file_imports"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    repo_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("repos.repo_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_file: Mapped[str] = mapped_column(Text, nullable=False)
+    imported_file: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )

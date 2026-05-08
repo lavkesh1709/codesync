@@ -79,6 +79,14 @@ def ingest_repo_task(self, repo_url: str, repo_id: str) -> dict:
             self.update_state(state="PROGRESS", meta={"step": "storing"})
             async with AsyncSessionLocal() as db:
                 chunks_created = await insert_chunks(db, repo_id, embedded)
+
+            self.update_state(state="PROGRESS", meta={"step": "parsing_imports"})
+            from app.core.ingestion.import_parser import parse_all_imports
+            from app.db.repositories.chunks import insert_file_imports
+
+            adjacency = parse_all_imports(files, repo_path)
+            async with AsyncSessionLocal() as db:
+                imports_stored = await insert_file_imports(db, repo_id, adjacency)
                 await update_repo(
                     db,
                     repo_id,
@@ -86,6 +94,12 @@ def ingest_repo_task(self, repo_url: str, repo_id: str) -> dict:
                     files_processed=len(files),
                     chunks_created=chunks_created,
                 )
+
+            log.info(
+                "import_graph_stored",
+                repo_id=repo_id,
+                import_relationships=imports_stored,
+            )
 
             invalidate_bm25_cache(repo_id)
 

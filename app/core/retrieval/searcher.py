@@ -148,10 +148,45 @@ async def search(
 
     # Combine with RRF and return top_k
     fused = _reciprocal_rank_fusion(vector_chunks, bm25_chunks)
-    result = fused[:top_k]
+    retrieved = fused[:top_k]
 
-    log.info("search_complete", chunks_returned=len(result))
-    return result
+    # Expand context — fetch chunks from files that retrieved files import
+    source_files = list({
+        chunk.file_path.replace("\\", "/")
+        for chunk in retrieved
+    })
+
+    from app.db.repositories.chunks import get_imported_files
+    imported_files = await get_imported_files(db, repo_id, source_files)
+
+    # Fetch chunks from imported files not already in retrieved set
+    expansion_chunks: list[Chunk] = []
+    if imported_files:
+        already_retrieved = {str(c.id) for c in retrieved}
+        for imp_file in imported_files[:5]:  # max 5 expansion files
+            imp_chunks = list(await search_similar(
+                db=db,
+                repo_id=repo_id,
+                query_embedding=query_embedding,
+                top_k=2,
+            ))
+            for c in imp_chunks:
+                if (str(c.id) not in already_retrieved
+                        and c.file_path.replace("\\", "/") == imp_file):
+                    expansion_chunks.append(c)
+                    already_retrieved.add(str(c.id))
+
+    # Hard cap — never send more than 10 chunks total to LLM
+    result = (retrieved + expansion_chunks)[:10]
+
+    log.info(
+        "search_complete",
+        chunks_returned=len(result),
+        retrieved=len(retrieved),
+        expanded=len(expansion_chunks),
+    )
+    return result       
+  
 
 def invalidate_bm25_cache(repo_id: str) -> None:
     """

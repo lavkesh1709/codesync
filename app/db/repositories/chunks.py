@@ -155,3 +155,60 @@ async def get_chunks_by_ids(
     stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+async def insert_file_imports(
+    db: AsyncSession,
+    repo_id: str,
+    adjacency: dict[str, list[str]],
+) -> int:
+    """
+    Store the import adjacency list for a repo.
+    adjacency: {source_file: [imported_files]}
+    Returns total number of import relationships stored.
+    """
+    from app.db.models import FileImport
+
+    objects = []
+    for source_file, imported_files in adjacency.items():
+        for imported_file in imported_files:
+            objects.append(FileImport(
+                id=uuid.uuid4(),
+                repo_id=repo_id,
+                source_file=source_file,
+                imported_file=imported_file,
+            ))
+
+    if objects:
+        db.add_all(objects)
+        await db.flush()
+
+    return len(objects)
+
+
+async def get_imported_files(
+    db: AsyncSession,
+    repo_id: str,
+    source_files: list[str],
+) -> list[str]:
+    """
+    Given a list of source files, return all files they import.
+    Used at query time to expand retrieved chunks.
+    Only returns one level deep — direct imports only.
+    """
+    from app.db.models import FileImport
+    from sqlalchemy import or_
+
+    if not source_files:
+        return []
+
+    # Normalize paths — use forward slashes for comparison
+    normalized = [f.replace("\\", "/") for f in source_files]
+
+    stmt = (
+        select(FileImport.imported_file)
+        .where(FileImport.repo_id == repo_id)
+        .where(FileImport.source_file.in_(normalized))
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
