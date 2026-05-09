@@ -62,7 +62,7 @@ class Chunk(Base):
 class FileImport(Base):
     __tablename__ = "file_imports"
 
-    id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[uuid.UUID] = mapped_column(              
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
