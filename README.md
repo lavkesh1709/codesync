@@ -199,7 +199,35 @@ Key insights:
 
 ## Known Limitations
 
-- Ingestion is slow on CPU (~8 min for FastAPI repo) — embeddings are CPU-bound
-- The `all-MiniLM-L6-v2` model has a 256 token input limit — very long functions get truncated
-- BM25 index is rebuilt in memory per query for the first request — subsequent queries use cached index
-- Private repositories not yet supported (Phase 2+ enhancement)
+**Import parsing is Python-only**  
+The dependency graph expansion uses Python's `ast` module. JS/TS/Go repos 
+get no import-based context expansion. tree-sitter grammars exist for all 
+these languages — straightforward to extend in a future phase.
+
+**Embedding model truncation**  
+`all-MiniLM-L6-v2` has a 256 token input limit. Functions longer than ~190 
+words get truncated silently. tree-sitter chunking mitigates this by keeping 
+most functions under the limit — but very long functions still get cut.
+
+**Ingestion speed**  
+Embedding 12,000+ chunks on CPU takes ~8 minutes. A GPU would reduce this 
+to under 1 minute. Celery makes this non-blocking — the API returns instantly, 
+embedding happens in the background.
+
+**BM25 cache is per-process**  
+Each process builds its own in-memory BM25 index on first query. Multiple 
+Celery workers produce inconsistent cache state. Fix: serialize index to Redis 
+— planned in Phase 4.
+
+**No rate limiting**  
+The API has no per-client rate limiting — planned in Phase 4 using Redis 
+token buckets to protect the Groq API key in production.
+
+**Private repositories not supported**  
+Cloner only handles public GitHub URLs. GitHub personal access token support 
+would enable private repos — straightforward addition not yet implemented.
+
+**Fixed chunk size for non-Python files**  
+40 lines works well for Python with tree-sitter fallback. For other languages 
+(Go functions can be 200+ lines, Java classes 500+) the fixed size can produce 
+incomplete semantic units.
