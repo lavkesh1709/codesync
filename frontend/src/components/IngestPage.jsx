@@ -84,9 +84,10 @@ export default function IngestPage({ state, setState, onComplete }) {
 
   return (
     <div>
-      <div>
+      {/* Hero */}
+      <div style={{ marginBottom: '40px' }}>
         <div className="page-title">Index a Repository</div>
-        <div className="page-subtitle">Clone, chunk, embed and store a GitHub codebase</div>
+        <div className="page-subtitle">Clone, chunk, embed and store any GitHub codebase — then ask questions in plain English and get answers with exact file citations.</div>
       </div>
 
       <div className="panel">
@@ -146,14 +147,22 @@ export default function IngestPage({ state, setState, onComplete }) {
           )}
 
           {/* Log terminal */}
-          <div className="log-terminal" ref={logRef}>
-            {logs.map((log, i) => (
-              <div key={i} className="log-entry">
-                <span className="log-time">{log.time}</span>
-                <span className={`log-level-${log.type}`}>[{log.type.toUpperCase()}]</span>
-                <span className="log-msg">{log.msg}</span>
-              </div>
-            ))}
+          <div className="log-terminal">
+            <div className="log-terminal-header">
+              <div className="log-terminal-dot" style={{ background: '#ff5f57' }} />
+              <div className="log-terminal-dot" style={{ background: '#febc2e' }} />
+              <div className="log-terminal-dot" style={{ background: '#28c840' }} />
+              <span className="log-terminal-title">ingestion.log</span>
+            </div>
+            <div className="log-terminal-body" ref={logRef}>
+              {logs.map((log, i) => (
+                <div key={i} className="log-entry">
+                  <span className="log-time">{log.time}</span>
+                  <span className={`log-level-${log.type}`}>[{log.type.toUpperCase()}]</span>
+                  <span className="log-msg">{log.msg}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
         </div>

@@ -49,9 +49,10 @@ export default function QueryPage({ defaultRepoId }) {
 
   return (
     <div>
-      <div>
+      {/* Hero */}
+      <div style={{ marginBottom: '40px' }}>
         <div className="page-title">Query Codebase</div>
-        <div className="page-subtitle">Ask in plain English — get answers with exact file citations</div>
+        <div className="page-subtitle">Ask in plain English — get answers with exact file and line citations, powered by BM25 + vector search and cross-encoder reranking.</div>
       </div>
 
       {/* Input panel */}
@@ -90,9 +91,9 @@ export default function QueryPage({ defaultRepoId }) {
               onChange={e => setQuestion(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && askQuestion()}
               placeholder="How does the routing system handle HTTP methods?"
-              style={{ flex: 1, background: '#080b0f', border: '1px solid #1e2d3d', borderRadius: '6px', padding: '14px 18px', fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: '#c9d1d9', outline: 'none', transition: 'border-color 0.2s' }}
-              onFocus={e => e.target.style.borderColor = '#00ff88'}
-              onBlur={e => e.target.style.borderColor = '#1e2d3d'}
+              style={{ flex: 1, background: '#fff', border: '1.5px solid #e9e0c8', borderRadius: '8px', padding: '12px 16px', fontFamily: 'JetBrains Mono, monospace', fontSize: '14px', color: '#1c1917', outline: 'none', transition: 'border-color 0.15s' }}
+              onFocus={e => e.target.style.borderColor = '#b45309'}
+              onBlur={e => e.target.style.borderColor = '#e9e0c8'}
             />
             <button className="btn-primary" onClick={askQuestion} disabled={streaming}
               style={{ whiteSpace: 'nowrap', minWidth: '80px' }}>
@@ -110,7 +111,7 @@ export default function QueryPage({ defaultRepoId }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
             <div className="section-label">Answer</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {latency && <span style={{ fontFamily: 'JetBrains Mono', fontSize: '10px', color: '#3d4f5c' }}>↳ {latency}ms</span>}
+              {latency && <span style={{ fontFamily: 'JetBrains Mono', fontSize: '11px', color: '#94a3b8' }}>↳ {latency}ms</span>}
               {streamStatus && (
                 <span className={`status-pill ${streamStatus === 'streaming' ? 'processing' : streamStatus === 'complete' ? 'completed' : 'error'}`}>
                   <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
@@ -127,7 +128,7 @@ export default function QueryPage({ defaultRepoId }) {
                 {streaming && <span style={{ color: '#00ff88', animation: 'blink 0.7s step-end infinite' }}>▋</span>}
               </>
             ) : (
-              <span style={{ color: '#3d4f5c', fontStyle: 'italic' }}>
+              <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '14px' }}>
                 {streaming ? 'Retrieving relevant code...' : 'Answer streams here word by word after you ask a question.'}
               </span>
             )}
@@ -142,7 +143,7 @@ export default function QueryPage({ defaultRepoId }) {
             </span>
           </div>
           {sources.length === 0 ? (
-            <div style={{ padding: '20px 16px', fontFamily: 'JetBrains Mono', fontSize: '11px', color: '#3d4f5c' }}>
+            <div style={{ padding: '20px 16px', fontFamily: 'JetBrains Mono', fontSize: '12px', color: '#94a3b8' }}>
               File citations appear here
             </div>
           ) : (
