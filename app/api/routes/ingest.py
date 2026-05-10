@@ -57,7 +57,6 @@ async def ingest(
 
 
 @router.get("/ingest/{job_id}/status", response_model=StatusResponse)
-@router.get("/ingest/{job_id}/status", response_model=StatusResponse)
 async def ingest_status(
     job_id: str,
     repo_id: str,
@@ -79,6 +78,15 @@ async def ingest_status(
             repo_id=repo_id,
             status="processing",
             step=meta.get("step"),
+        )
+        
+    # If Celery explicitly failed, grab the exception message
+    if result.state == "FAILURE":
+        return StatusResponse(
+            job_id=job_id,
+            repo_id=repo_id,
+            status="failed",
+            error=str(result.result)  # Celery stores the exception in .result
         )
 
     # Fall back to database — always accurate for completed/failed

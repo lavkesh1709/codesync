@@ -36,7 +36,9 @@ async def clone_repo(repo_url: str, repo_id: str) -> Path:
         # Clean up temp dir if clone failed
         shutil.rmtree(tmp_dir, ignore_errors=True)
         log.error("clone_failed", repo_id=repo_id, error=str(e))
-        raise ValueError(f"Failed to clone repository: {repo_url}. {str(e)}")
+        
+        clean_error = e.stderr.strip().replace('\n', ' ') if e.stderr else "Repository not found or access denied."
+        raise ValueError(f"Failed to clone '{repo_url}': {clean_error}")
 
 
 def cleanup_repo(path: Path) -> None:

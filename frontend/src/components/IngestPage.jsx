@@ -71,7 +71,7 @@ export default function IngestPage({ state, setState, onComplete }) {
           onComplete(repoId)
         } else if (data.status === 'failed') {
           clearInterval(pollRef.current)
-          addLog('Indexing failed', 'error')
+          addLog(data.error ? `Failed: ${data.error}` : 'Indexing failed', 'error')
           setStatus('error')
           setLoading(false)
           setProgress(0)
