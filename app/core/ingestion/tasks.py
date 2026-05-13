@@ -46,17 +46,23 @@ def ingest_repo_task(self, repo_url: str, repo_id: str) -> dict:
         insert_repo,
         update_repo,
     )
-    from app.db.session import AsyncSessionLocal
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
     from app.config import settings
 
     # Celery tasks are sync — we run async code with asyncio.run()
     async def _run():
+        # Create a completely fresh engine for this task's event loop
+        # This prevents asyncio Lock/Queue corruption across multiple task runs
+        task_engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        TaskSessionLocal = async_sessionmaker(task_engine, expire_on_commit=False)
+
         start = time.monotonic()
 
-        async with AsyncSessionLocal() as db:
+        async with TaskSessionLocal() as db:
             # Idempotency — delete existing data
             await delete_repo(db, repo_id)
             await insert_repo(db, repo_id, repo_url)
+            await db.commit()
 
         repo_path = None
         try:
@@ -77,15 +83,16 @@ def ingest_repo_task(self, repo_url: str, repo_id: str) -> dict:
             embedded = embed_chunks(chunks)
 
             self.update_state(state="PROGRESS", meta={"step": "storing"})
-            async with AsyncSessionLocal() as db:
+            async with TaskSessionLocal() as db:
                 chunks_created = await insert_chunks(db, repo_id, embedded)
+                await db.commit()
 
             self.update_state(state="PROGRESS", meta={"step": "parsing_imports"})
             from app.core.ingestion.import_parser import parse_all_imports
             from app.db.repositories.chunks import insert_file_imports
 
             adjacency = parse_all_imports(files, repo_path)
-            async with AsyncSessionLocal() as db:
+            async with TaskSessionLocal() as db:
                 imports_stored = await insert_file_imports(db, repo_id, adjacency)
                 await update_repo(
                     db,
@@ -94,6 +101,7 @@ def ingest_repo_task(self, repo_url: str, repo_id: str) -> dict:
                     files_processed=len(files),
                     chunks_created=chunks_created,
                 )
+                await db.commit()
 
             log.info(
                 "import_graph_stored",
@@ -120,13 +128,23 @@ def ingest_repo_task(self, repo_url: str, repo_id: str) -> dict:
             }
 
         except Exception as e:
-            async with AsyncSessionLocal() as db:
+            async with TaskSessionLocal() as db:
                 await update_repo(db, repo_id, status="failed")
-            log.error("ingest_task_failed", repo_id=repo_id, error=str(e))
-            raise
+                await db.commit()
+            
+            # Truncate the error message so it doesn't send 8MB of chunk data to the UI
+            error_msg = str(e)
+            if len(error_msg) > 500:
+                error_msg = error_msg[:500] + " ... [error truncated]"
+                
+            log.error("ingest_task_failed", repo_id=repo_id, error=error_msg)
+            raise ValueError(f"Pipeline error: {error_msg}")
 
         finally:
             if repo_path is not None:
                 cleanup_repo(repo_path)
+                
+            # Safely dispose of this task's specific engine
+            await task_engine.dispose()
 
     return asyncio.run(_run())
