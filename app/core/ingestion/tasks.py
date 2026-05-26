@@ -1,10 +1,14 @@
 import asyncio
+import ssl
 import time
 
 import structlog
 from celery import Celery
 
 from app.config import settings
+from app.core.cache import invalidate_cache
+from app.db.session import AsyncSessionLocal
+
 
 log = structlog.get_logger()
 
@@ -17,13 +21,20 @@ celery_app = Celery(
     backend=settings.celery_result_backend,
 )
 
-celery_app.conf.update(
-    task_serializer="json",
-    result_serializer="json",
-    accept_content=["json"],
-    task_track_started=True,   # lets us see "started" status
-    result_expires=3600,       # results expire after 1 hour
-)
+celery_config = {
+    "task_serializer": "json",
+    "result_serializer": "json",
+    "accept_content": ["json"],
+    "task_track_started": True,   # lets us see "started" status
+    "result_expires": 3600,       # results expire after 1 hour
+}
+
+# Handle secure Redis connections (like Upstash)
+if settings.celery_broker_url.startswith("rediss://"):
+    celery_config["broker_use_ssl"] = {"ssl_cert_reqs": ssl.CERT_NONE}
+    celery_config["redis_backend_use_ssl"] = {"ssl_cert_reqs": ssl.CERT_NONE}
+
+celery_app.conf.update(**celery_config)
 
 
 @celery_app.task(bind=True, name="ingest_repo")
@@ -110,6 +121,10 @@ def ingest_repo_task(self, repo_url: str, repo_id: str) -> dict:
             )
 
             invalidate_bm25_cache(repo_id)
+
+            # Invalidate semantic cache — old answers may be wrong after re-index
+            async with AsyncSessionLocal() as db:
+                await invalidate_cache(db, repo_id)
 
             duration = round(time.monotonic() - start, 2)
             log.info(

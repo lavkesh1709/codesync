@@ -13,6 +13,7 @@ export default function IngestPage({ state, setState, onComplete }) {
 
   const pollRef = useRef(null)
   const logRef = useRef(null)
+  const lastStepRef = useRef(null)
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
@@ -37,6 +38,7 @@ export default function IngestPage({ state, setState, onComplete }) {
     setLoading(true)
     setStatus('processing')
     setProgress(5)
+    lastStepRef.current = null
     addLog(`Queuing ingest for ${repoId}...`)
 
     try {
@@ -60,7 +62,11 @@ export default function IngestPage({ state, setState, onComplete }) {
         const data = await getIngestStatus(jobId, rid)
         if (data.step && STEP_PROGRESS[data.step]) {
           setProgress(STEP_PROGRESS[data.step])
-          addLog(`Step: ${data.step.replace('_', ' ')}...`)
+          // Only print the log if the step actually transitioned
+          if (data.step !== lastStepRef.current) {
+            addLog(`Step: ${data.step.replace('_', ' ')}...`)
+            lastStepRef.current = data.step
+          }
         }
         if (data.status === 'completed') {
           clearInterval(pollRef.current)
