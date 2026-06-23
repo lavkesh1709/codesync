@@ -1,4 +1,3 @@
-import subprocess
 import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -31,8 +30,11 @@ log = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from alembic.config import Config
+    from alembic import command
     log.info("running_migrations")
-    subprocess.run(["uv", "run", "alembic", "upgrade", "head"], check=True)
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
     log.info("migrations_complete")
     yield
 
