@@ -1,0 +1,112 @@
+import asyncio
+import time
+
+import structlog
+
+from app.config import settings
+from app.db.session import AsyncSessionLocal
+
+log = structlog.get_logger()
+
+
+async def run_ingestion(repo_url: str, repo_id: str) -> None:
+    """
+    Full ingestion pipeline as an async function.
+    Runs as a FastAPI BackgroundTask — no Celery worker required.
+
+    Status is written to the database at each step so the
+    /ingest/{repo_id}/status endpoint can report live progress.
+    """
+    # All heavy imports are deferred to avoid loading them at startup
+    from app.core.ingestion.chunker import chunk_files
+    from app.core.ingestion.cloner import cleanup_repo, clone_repo
+    from app.core.ingestion.embedder import embed_chunks
+    from app.core.ingestion.file_walker import walk_files
+    from app.core.ingestion.import_parser import parse_all_imports
+    from app.core.retrieval.searcher import invalidate_bm25_cache
+    from app.db.repositories.chunks import (
+        delete_repo,
+        insert_chunks,
+        insert_file_imports,
+        insert_repo,
+        update_repo,
+    )
+    from app.core.cache import invalidate_cache
+
+    start = time.monotonic()
+
+    async def set_status(status: str) -> None:
+        async with AsyncSessionLocal() as db:
+            await update_repo(db, repo_id, status=status)
+            await db.commit()
+
+    # Reset any previous state for this repo
+    async with AsyncSessionLocal() as db:
+        await delete_repo(db, repo_id)
+        await insert_repo(db, repo_id, repo_url)
+        await db.commit()
+
+    repo_path = None
+    try:
+        await set_status("cloning")
+        repo_path = await clone_repo(repo_url, repo_id)
+
+        await set_status("walking")
+        files = walk_files(repo_path, settings.max_file_size_mb)
+
+        await set_status("chunking")
+        chunks = chunk_files(
+            files,
+            chunk_size=settings.chunk_size_lines,
+            overlap=settings.chunk_overlap_lines,
+        )
+
+        await set_status("embedding")
+        # embed_chunks is sync and CPU-bound — run in thread pool so the
+        # event loop stays responsive for other requests during embedding
+        loop = asyncio.get_event_loop()
+        embedded = await loop.run_in_executor(None, embed_chunks, chunks)
+
+        await set_status("storing")
+        async with AsyncSessionLocal() as db:
+            chunks_created = await insert_chunks(db, repo_id, embedded)
+            await db.commit()
+
+        adjacency = parse_all_imports(files, repo_path)
+        async with AsyncSessionLocal() as db:
+            await insert_file_imports(db, repo_id, adjacency)
+            await update_repo(
+                db,
+                repo_id,
+                status="completed",
+                files_processed=len(files),
+                chunks_created=chunks_created,
+            )
+            await db.commit()
+
+        invalidate_bm25_cache(repo_id)
+
+        async with AsyncSessionLocal() as db:
+            await invalidate_cache(db, repo_id)
+
+        duration = round(time.monotonic() - start, 2)
+        log.info(
+            "ingest_complete",
+            repo_id=repo_id,
+            chunks=chunks_created,
+            duration_seconds=duration,
+        )
+
+    except Exception as e:
+        error_msg = str(e)
+        if len(error_msg) > 500:
+            error_msg = error_msg[:500] + " ... [truncated]"
+        log.error("ingest_failed", repo_id=repo_id, error=error_msg)
+        async with AsyncSessionLocal() as db:
+            await update_repo(db, repo_id, status="failed")
+            await db.commit()
+
+    finally:
+        if repo_path is not None:
+            from app.core.ingestion.cloner import cleanup_repo as _cleanup
+            _cleanup(repo_path)
