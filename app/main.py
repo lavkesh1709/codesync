@@ -43,3 +43,10 @@ async def health() -> dict:
 
 
 log.info("codesync_started", env=settings.app_env)
+
+from fastapi.staticfiles import StaticFiles
+import os
+
+# Serve React frontend if static folder exists
+if os.path.exists("static"):
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")
