@@ -14,7 +14,7 @@ services:
       - key: GROQ_MODEL
         value: llama-3.1-8b-instant
       - key: EMBEDDING_MODEL
-        value: all-MiniLM-L6-v2
+        value: BAAI/bge-small-en-v1.5
       - key: APP_ENV
         value: production
       - key: LOG_LEVEL
@@ -48,7 +48,7 @@ services:
       - key: GROQ_MODEL
         value: llama-3.1-8b-instant
       - key: EMBEDDING_MODEL
-        value: all-MiniLM-L6-v2
+        value: BAAI/bge-small-en-v1.5
       - key: APP_ENV
         value: production
       - key: LOG_LEVEL
