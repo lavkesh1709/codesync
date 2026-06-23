@@ -29,6 +29,8 @@ services:
         sync: false
       - key: CELERY_RESULT_BACKEND
         sync: false
+      - key: ENABLE_RERANKING
+        value: "false"
 
   # Celery worker — same Docker image, different start command
   - type: worker

@@ -1,4 +1,6 @@
+import subprocess
 import structlog
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
@@ -6,6 +8,8 @@ from app.api.routes.ingest import router as ingest_router
 from app.api.routes.query import router as query_router
 from app.config import settings
 from app.api.routes.query_v2 import router as query_v2_router
+
+
 
 def custom_generate_unique_id(route: APIRoute) -> str:
     if route.tags:
@@ -24,8 +28,18 @@ structlog.configure(
 
 log = structlog.get_logger()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log.info("running_migrations")
+    subprocess.run(["uv", "run", "alembic", "upgrade", "head"], check=True)
+    log.info("migrations_complete")
+    yield
+
+
 app = FastAPI(
     title="CodeSync",
+    lifespan=lifespan,
     description="Self-hosted codebase intelligence — ask questions, get answers with file citations.",
     version="0.1.0",
     generate_unique_id_function=custom_generate_unique_id,

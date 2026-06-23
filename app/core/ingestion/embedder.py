@@ -7,13 +7,18 @@ from app.core.ingestion.chunker import ChunkData
 
 log = structlog.get_logger()
 
-# Load model once at module import time
-# This runs when the application starts — not per request
-# Loading takes 2-5 seconds and uses ~90MB RAM
-# Every subsequent embed call reuses this same model instance
-log.info("embedding_model_loading", model=settings.embedding_model)
-_model = SentenceTransformer(settings.embedding_model)
-log.info("embedding_model_ready", model=settings.embedding_model)
+# Lazy singleton — loaded on first use, not at import time
+# Avoids ~90MB RAM cost at startup on memory-constrained hosts
+_model: SentenceTransformer | None = None
+
+
+def _get_model() -> SentenceTransformer:
+    global _model
+    if _model is None:
+        log.info("embedding_model_loading", model=settings.embedding_model)
+        _model = SentenceTransformer(settings.embedding_model)
+        log.info("embedding_model_ready", model=settings.embedding_model)
+    return _model
 
 
 def embed_chunks(chunks: list[ChunkData]) -> list[dict]:
@@ -45,7 +50,7 @@ def embed_chunks(chunks: list[ChunkData]) -> list[dict]:
     # normalize_embeddings=True ensures vectors have L2 norm of 1
     # This makes cosine similarity equivalent to dot product
     # and keeps all scores in the range [0, 1]
-    embeddings = _model.encode(
+    embeddings = _get_model().encode(
         texts,
         batch_size=batch_size,
         show_progress_bar=True,
@@ -75,7 +80,7 @@ def embed_text(text: str) -> list[float]:
     Used at query time to embed the user's question.
     Same model, same vector space as embed_chunks.
     """
-    embedding = _model.encode(
+    embedding = _get_model().encode(
         text,
         normalize_embeddings=True,
         convert_to_numpy=True,

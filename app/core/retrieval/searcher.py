@@ -2,6 +2,7 @@ import structlog
 from rank_bm25 import BM25Okapi
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.ingestion.embedder import embed_text
 from app.db.models import Chunk
 from app.db.repositories.chunks import (
@@ -16,12 +17,18 @@ from rank_bm25 import BM25Okapi
 
 from sentence_transformers import CrossEncoder
 
-# Load cross-encoder once at startup — same singleton pattern as embedder
-# This model scores (question, chunk) pairs directly
-# ms-marco is trained specifically for passage ranking tasks
-log.info("reranker_loading")
-_reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-log.info("reranker_ready")
+# Lazy singleton — loaded on first use, not at import time
+# Avoids ~90MB RAM cost at startup on memory-constrained hosts (e.g. Render free tier)
+_reranker: CrossEncoder | None = None
+
+
+def _get_reranker() -> CrossEncoder:
+    global _reranker
+    if _reranker is None:
+        log.info("reranker_loading")
+        _reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        log.info("reranker_ready")
+    return _reranker
 
 
 # In-memory BM25 cache: repo_id → (BM25Okapi index, list of chunks)
@@ -95,7 +102,7 @@ def _rerank(
     pairs = [[question, chunk.content] for chunk in chunks]
 
     # Score all pairs — returns array of relevance scores
-    scores = _reranker.predict(pairs)
+    scores = _get_reranker().predict(pairs)
 
     # Sort chunks by score descending
     scored = sorted(
@@ -193,7 +200,11 @@ async def search(
     candidates = fused[:top_k * 4]  # reranker needs more candidates
 
     # Rerank candidates with cross-encoder for precise relevance scoring
-    retrieved = _rerank(question, candidates, top_k)
+    # Disabled on memory-constrained hosts via ENABLE_RERANKING=false
+    if settings.enable_reranking:
+        retrieved = _rerank(question, candidates, top_k)
+    else:
+        retrieved = candidates[:top_k]
 
     # Expand context — fetch chunks from files that retrieved files import
     source_files = list({
