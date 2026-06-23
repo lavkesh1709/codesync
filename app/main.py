@@ -30,11 +30,16 @@ log = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
     from alembic.config import Config
     from alembic import command
     log.info("running_migrations")
     alembic_cfg = Config("alembic.ini")
-    command.upgrade(alembic_cfg, "head")
+    # Run in a thread pool — alembic's env.py calls asyncio.run() internally,
+    # which fails if there's already a running event loop (as there is here).
+    # A thread gets its own event loop context so asyncio.run() works fine.
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, command.upgrade, alembic_cfg, "head")
     log.info("migrations_complete")
     yield
 
