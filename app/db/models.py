@@ -78,3 +78,33 @@ class FileImport(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+class CacheEntry(Base):
+    __tablename__ = "cache_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    repo_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("repos.repo_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    question_embedding: Mapped[Vector] = mapped_column(
+        Vector(384),
+        nullable=False,
+    )
+    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    sources: Mapped[str] = mapped_column(Text, nullable=False)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )

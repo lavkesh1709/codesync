@@ -37,6 +37,8 @@ SKIP_DIRS = {
     ".mypy_cache",
     ".ruff_cache",
     ".pytest_cache",
+    ".agents",       # ← add this
+    ".github",
     # Skip translated docs — they duplicate content and pollute retrieval
     # Only keep English docs
     "docs/de", "docs/fr", "docs/ja", "docs/ko", "docs/zh",

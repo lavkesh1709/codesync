@@ -9,6 +9,7 @@ from app.core.retrieval.generator import generate
 from app.core.retrieval.searcher import search
 from app.db.repositories.chunks import get_repo
 from app.db.session import get_db
+from app.core.cache import get_cached_answer, store_cached_answer
 
 log = structlog.get_logger()
 
@@ -40,13 +41,15 @@ async def query(
     db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
     """
-    Embed the question, find relevant chunks, call Groq, return answer.
+    Embed the question, check cache, find relevant chunks,
+    call Groq, return answer.
     Returns 404 if the repo_id has not been indexed.
     """
+    import time
     start = time.monotonic()
     log.info("query_request", repo_id=request.repo_id, question=request.question[:80])
 
-    # Verify repo exists and was indexed successfully
+    # Verify repo exists
     repo = await get_repo(db, request.repo_id)
     if repo is None:
         raise HTTPException(
@@ -56,11 +59,23 @@ async def query(
     if repo.status != "completed":
         raise HTTPException(
             status_code=400,
-            detail=f"repo '{request.repo_id}' has status '{repo.status}'. "
-                   "Only completed repos can be queried.",
+            detail=f"repo '{request.repo_id}' has status '{repo.status}'.",
         )
 
-    # Find relevant chunks via vector similarity search
+    # Check semantic cache first
+    cached = await get_cached_answer(db, request.repo_id, request.question)
+    if cached:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        log.info("query_served_from_cache", latency_ms=latency_ms)
+        return QueryResponse(
+            answer=cached["answer"],
+            sources=[
+                SourceReference(**s) for s in cached["sources"]
+            ],
+            latency_ms=latency_ms,
+        )
+
+    # Cache miss — run full pipeline
     chunks = await search(
         db=db,
         repo_id=request.repo_id,
@@ -68,23 +83,28 @@ async def query(
         top_k=request.top_k,
     )
 
-    # Generate answer from retrieved chunks
     answer = await generate(question=request.question, chunks=chunks)
 
     latency_ms = int((time.monotonic() - start) * 1000)
 
-    # Build source references from retrieved chunks
-    # Similarity score is not returned by pgvector in this query yet —
-    # we use a placeholder. Phase 3 will add proper score retrieval.
     sources = [
         SourceReference(
             file=chunk.file_path,
             start_line=chunk.start_line,
             end_line=chunk.end_line,
-            similarity_score=0.0,  # phase 3: retrieve actual cosine score
+            similarity_score=0.0,
         )
         for chunk in chunks
     ]
+
+    # Store in cache for future similar questions
+    await store_cached_answer(
+        db=db,
+        repo_id=request.repo_id,
+        question=request.question,
+        answer=answer,
+        sources=[s.model_dump() for s in sources],
+    )
 
     log.info(
         "query_complete",
