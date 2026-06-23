@@ -1,6 +1,5 @@
 import numpy as np
 import structlog
-from sentence_transformers import SentenceTransformer
 
 from app.config import settings
 from app.core.ingestion.chunker import ChunkData
@@ -8,13 +7,15 @@ from app.core.ingestion.chunker import ChunkData
 log = structlog.get_logger()
 
 # Lazy singleton — loaded on first use, not at import time
-# Avoids ~90MB RAM cost at startup on memory-constrained hosts
-_model: SentenceTransformer | None = None
+# sentence_transformers imports PyTorch (~200-300MB), so we defer the import
+# itself until first use to keep startup memory under 512MB on Render free tier.
+_model = None
 
 
-def _get_model() -> SentenceTransformer:
+def _get_model():
     global _model
     if _model is None:
+        from sentence_transformers import SentenceTransformer
         log.info("embedding_model_loading", model=settings.embedding_model)
         _model = SentenceTransformer(settings.embedding_model)
         log.info("embedding_model_ready", model=settings.embedding_model)

@@ -13,18 +13,16 @@ from app.db.repositories.chunks import (
 
 log = structlog.get_logger()
 
-from rank_bm25 import BM25Okapi
-
-from sentence_transformers import CrossEncoder
-
 # Lazy singleton — loaded on first use, not at import time
-# Avoids ~90MB RAM cost at startup on memory-constrained hosts (e.g. Render free tier)
-_reranker: CrossEncoder | None = None
+# sentence_transformers imports PyTorch (~200-300MB), so the import itself
+# is deferred until first call to keep startup memory under 512MB.
+_reranker = None
 
 
-def _get_reranker() -> CrossEncoder:
+def _get_reranker():
     global _reranker
     if _reranker is None:
+        from sentence_transformers import CrossEncoder
         log.info("reranker_loading")
         _reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
         log.info("reranker_ready")
