@@ -4,21 +4,21 @@ import './styles.css'
 
 const QUICK_QUESTIONS = [
   'How does dependency injection work?',
-  'How does the Depends class work internally?',
   'How does the routing system work?',
-  'How are middleware components implemented?',
   'How does authentication work?',
   'How does exception handling work?',
+  'How is middleware implemented?',
+  'How are background tasks handled?',
 ]
 
 export default function QueryPage({ defaultRepoId }) {
-  const [repoId, setRepoId] = useState(defaultRepoId || 'fastapi-main')
+  const [repoId, setRepoId] = useState(defaultRepoId || '')
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
   const [sources, setSources] = useState([])
   const [streaming, setStreaming] = useState(false)
   const [latency, setLatency] = useState(null)
-  const [streamStatus, setStreamStatus] = useState(null)
+  const [error, setError] = useState(null)
   const startTime = useRef(null)
 
   async function askQuestion() {
@@ -27,32 +27,31 @@ export default function QueryPage({ defaultRepoId }) {
     setAnswer('')
     setSources([])
     setLatency(null)
-    setStreamStatus('streaming')
+    setError(null)
     startTime.current = Date.now()
 
     try {
       for await (const event of queryStream(repoId, question)) {
         if (event.type === 'sources') setSources(event.sources)
-        if (event.type === 'token') setAnswer(prev => prev + event.content)
+        if (event.type === 'token')   setAnswer(prev => prev + event.content)
         if (event.type === 'done') {
           setLatency(Date.now() - startTime.current)
           setStreaming(false)
-          setStreamStatus('complete')
         }
       }
     } catch (err) {
-      setAnswer(`Error: ${err.message}`)
+      setError(err.message)
       setStreaming(false)
-      setStreamStatus('error')
     }
   }
 
   return (
     <div>
-      {/* Hero */}
-      <div style={{ marginBottom: '40px' }}>
+      <div style={{ marginBottom: '36px' }}>
         <div className="page-title">Query Codebase</div>
-        <div className="page-subtitle">Ask in plain English — get answers with exact file and line citations, powered by BM25 + vector search and cross-encoder reranking.</div>
+        <div className="page-subtitle">
+          Ask in plain English — get answers with exact file and line citations powered by hybrid BM25 + vector search.
+        </div>
       </div>
 
       {/* Input panel */}
@@ -65,57 +64,70 @@ export default function QueryPage({ defaultRepoId }) {
         </div>
 
         <div className="panel-body">
-          <div className="field" style={{ maxWidth: '320px' }}>
+          <div className="field" style={{ maxWidth: '340px' }}>
             <label>Repository ID</label>
             <input type="text" value={repoId}
               onChange={e => setRepoId(e.target.value)}
-              placeholder="fastapi-main" />
+              placeholder="my-repo" />
           </div>
 
-          {/* Quick questions */}
           <div style={{ marginBottom: '16px' }}>
             <div className="section-label">Quick questions</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {QUICK_QUESTIONS.map(q => (
-                <button key={q} className="quick-btn"
-                  onClick={() => setQuestion(q)}>
-                  {q.length > 40 ? q.slice(0, 38) + '...' : q}
+                <button key={q} className="quick-btn" onClick={() => setQuestion(q)}>
+                  {q.length > 42 ? q.slice(0, 40) + '…' : q}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Question input */}
           <div style={{ display: 'flex', gap: '12px' }}>
             <input type="text" value={question}
               onChange={e => setQuestion(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && askQuestion()}
               placeholder="How does the routing system handle HTTP methods?"
-              style={{ flex: 1, background: '#fff', border: '1.5px solid #e9e0c8', borderRadius: '8px', padding: '12px 16px', fontFamily: 'JetBrains Mono, monospace', fontSize: '14px', color: '#1c1917', outline: 'none', transition: 'border-color 0.15s' }}
-              onFocus={e => e.target.style.borderColor = '#b45309'}
-              onBlur={e => e.target.style.borderColor = '#e9e0c8'}
+              className="query-input"
             />
             <button className="btn-primary" onClick={askQuestion} disabled={streaming}
-              style={{ whiteSpace: 'nowrap', minWidth: '80px' }}>
-              {streaming ? '...' : 'Ask ↵'}
+              style={{ whiteSpace: 'nowrap', minWidth: '90px' }}>
+              {streaming ? '…' : 'Ask ↵'}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Answer + Sources grid */}
+      {/* Error banner */}
+      {error && (
+        <div className="error-panel" style={{ marginBottom: '20px' }}>
+          <div className="error-panel-header" style={{ cursor: 'default' }}>
+            <span>⚠ {error}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Answer + Sources */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '20px', alignItems: 'start' }}>
 
-        {/* Answer */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
             <div className="section-label">Answer</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {latency && <span style={{ fontFamily: 'JetBrains Mono', fontSize: '11px', color: '#94a3b8' }}>↳ {latency}ms</span>}
-              {streamStatus && (
-                <span className={`status-pill ${streamStatus === 'streaming' ? 'processing' : streamStatus === 'complete' ? 'completed' : 'error'}`}>
+              {latency && (
+                <span style={{ fontFamily: 'JetBrains Mono', fontSize: '11px', color: 'var(--text-dimmer)' }}>
+                  ↳ {(latency / 1000).toFixed(1)}s
+                </span>
+              )}
+              {streaming && (
+                <span className="status-pill processing">
                   <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
-                  {streamStatus}
+                  streaming
+                </span>
+              )}
+              {!streaming && answer && (
+                <span className="status-pill completed">
+                  <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
+                  complete
                 </span>
               )}
             </div>
@@ -128,8 +140,10 @@ export default function QueryPage({ defaultRepoId }) {
                 {streaming && <span style={{ color: '#00ff88', animation: 'blink 0.7s step-end infinite' }}>▋</span>}
               </>
             ) : (
-              <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '14px' }}>
-                {streaming ? 'Retrieving relevant code...' : 'Answer streams here word by word after you ask a question.'}
+              <span style={{ color: 'var(--text-dimmer)', fontStyle: 'italic', fontSize: '13px' }}>
+                {streaming
+                  ? 'Searching codebase…'
+                  : 'Answer streams here word by word after you ask a question.'}
               </span>
             )}
           </div>
@@ -143,7 +157,7 @@ export default function QueryPage({ defaultRepoId }) {
             </span>
           </div>
           {sources.length === 0 ? (
-            <div style={{ padding: '20px 16px', fontFamily: 'JetBrains Mono', fontSize: '12px', color: '#94a3b8' }}>
+            <div style={{ padding: '20px 16px', fontFamily: 'JetBrains Mono', fontSize: '12px', color: 'var(--text-dimmer)' }}>
               File citations appear here
             </div>
           ) : (
@@ -157,7 +171,26 @@ export default function QueryPage({ defaultRepoId }) {
         </div>
       </div>
 
-      <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }`}</style>
+      <style>{`
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        .query-input {
+          flex: 1;
+          background: var(--input-bg);
+          border: 1.5px solid var(--border);
+          border-radius: 8px;
+          padding: 12px 16px;
+          font-family: JetBrains Mono, monospace;
+          font-size: 14px;
+          color: var(--text);
+          outline: none;
+          transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .query-input:focus {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 3px rgba(180,83,9,0.1);
+        }
+        .query-input::placeholder { color: var(--text-dimmer); }
+      `}</style>
     </div>
   )
 }
