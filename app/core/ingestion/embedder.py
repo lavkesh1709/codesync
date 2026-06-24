@@ -10,13 +10,16 @@ log = structlog.get_logger()
 _model = None
 
 
+FASTEMBED_MODEL = "BAAI/bge-small-en-v1.5"  # 384-dim, ONNX, ~50MB
+
+
 def _get_model():
     global _model
     if _model is None:
         from fastembed import TextEmbedding
-        log.info("embedding_model_loading", model=settings.embedding_model)
-        _model = TextEmbedding(settings.embedding_model)
-        log.info("embedding_model_ready", model=settings.embedding_model)
+        log.info("embedding_model_loading", model=FASTEMBED_MODEL)
+        _model = TextEmbedding(FASTEMBED_MODEL)
+        log.info("embedding_model_ready", model=FASTEMBED_MODEL)
     return _model
 
 
