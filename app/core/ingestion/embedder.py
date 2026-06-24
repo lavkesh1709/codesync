@@ -37,7 +37,7 @@ def embed_chunks(chunks: list[ChunkData]) -> list[dict]:
     log.info("embedding_started", total_chunks=len(chunks))
 
     # fastembed.embed() returns a generator of numpy arrays — materialise it
-    embeddings = list(model.embed(texts, batch_size=32))
+    embeddings = list(model.embed(texts, batch_size=8))
 
     log.info("embedding_complete", total_chunks=len(chunks))
 

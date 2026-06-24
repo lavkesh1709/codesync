@@ -23,6 +23,10 @@ COPY uv.lock .
 # Install Python dependencies
 RUN uv sync --frozen --no-dev
 
+# Pre-download the fastembed model during build so it's baked into the image.
+# This avoids a ~130MB download at runtime on a 512MB instance (which causes OOM).
+RUN python3 -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
+
 # Copy application code
 COPY app/ ./app/
 COPY alembic/ ./alembic/
