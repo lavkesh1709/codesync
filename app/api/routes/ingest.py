@@ -75,4 +75,5 @@ async def ingest_status(
         status=repo.status,
         files_processed=repo.files_processed,
         chunks_created=repo.chunks_created,
+        error=repo.error_message,
     )

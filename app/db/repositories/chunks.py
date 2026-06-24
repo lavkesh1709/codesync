@@ -33,6 +33,7 @@ async def update_repo(
     status: str,
     files_processed: int = 0,
     chunks_created: int = 0,
+    error_message: str | None = None,
 ) -> None:
     """
     Update repo status and counts after ingestion completes or fails.
@@ -44,6 +45,7 @@ async def update_repo(
             status=status,
             files_processed=files_processed,
             chunks_created=chunks_created,
+            error_message=error_message,
         )
     )
     await db.execute(stmt)

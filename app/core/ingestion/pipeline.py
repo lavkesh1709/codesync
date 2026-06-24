@@ -17,21 +17,11 @@ async def run_ingestion(repo_url: str, repo_id: str) -> None:
     Status is written to the database at each step so the
     /ingest/{repo_id}/status endpoint can report live progress.
     """
-    # All heavy imports are deferred to avoid loading them at startup
-    from app.core.ingestion.chunker import chunk_files
-    from app.core.ingestion.cloner import cleanup_repo, clone_repo
-    from app.core.ingestion.embedder import embed_chunks
-    from app.core.ingestion.file_walker import walk_files
-    from app.core.ingestion.import_parser import parse_all_imports
-    from app.core.retrieval.searcher import invalidate_bm25_cache
     from app.db.repositories.chunks import (
         delete_repo,
-        insert_chunks,
-        insert_file_imports,
         insert_repo,
         update_repo,
     )
-    from app.core.cache import invalidate_cache
 
     start = time.monotonic()
 
@@ -48,6 +38,16 @@ async def run_ingestion(repo_url: str, repo_id: str) -> None:
 
     repo_path = None
     try:
+        # Imports deferred inside try so any ImportError is caught and stored
+        from app.core.ingestion.chunker import chunk_files
+        from app.core.ingestion.cloner import cleanup_repo, clone_repo
+        from app.core.ingestion.embedder import embed_chunks
+        from app.core.ingestion.file_walker import walk_files
+        from app.core.ingestion.import_parser import parse_all_imports
+        from app.core.retrieval.searcher import invalidate_bm25_cache
+        from app.db.repositories.chunks import insert_chunks, insert_file_imports
+        from app.core.cache import invalidate_cache
+
         await set_status("cloning")
         repo_path = await clone_repo(repo_url, repo_id)
 
@@ -103,10 +103,13 @@ async def run_ingestion(repo_url: str, repo_id: str) -> None:
             error_msg = error_msg[:500] + " ... [truncated]"
         log.error("ingest_failed", repo_id=repo_id, error=error_msg)
         async with AsyncSessionLocal() as db:
-            await update_repo(db, repo_id, status="failed")
+            await update_repo(db, repo_id, status="failed", error_message=error_msg)
             await db.commit()
 
     finally:
         if repo_path is not None:
-            from app.core.ingestion.cloner import cleanup_repo as _cleanup
-            _cleanup(repo_path)
+            try:
+                from app.core.ingestion.cloner import cleanup_repo
+                cleanup_repo(repo_path)
+            except Exception:
+                pass
