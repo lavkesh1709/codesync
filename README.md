@@ -2,29 +2,33 @@
 
 **Ask questions about any codebase in plain English. Get answers with exact file and line citations.**
 
-CodeSync is a self-hosted RAG (Retrieval-Augmented Generation) system built for codebase intelligence. Point it at a GitHub repository, and ask questions the way you'd ask a senior engineer who has read every line of code.
+CodeSync is a self-hosted RAG (Retrieval-Augmented Generation) system for codebase intelligence. Point it at a public GitHub repository, ask questions the way you'd ask a senior engineer who has read every line of code, and get answers that cite the exact file and line where the answer lives.
 
-> Built to deeply understand retrieval engineering, LLM infrastructure, and production backend systems — not to use existing RAG frameworks.
+> Built from scratch to understand retrieval engineering and LLM infrastructure — no LangChain, no LlamaIndex, no RAG frameworks.
+
+**Live demo:** https://codesync-cee8.onrender.com
 
 ---
 
 ## Demo
 
-**Question:** "How does dependency injection work internally?"
+<!-- Add a GIF here: record a 20s clip of indexing a repo + streaming a query answer -->
+
+**Question:** *"How does dependency injection work internally?"*
 
 **Answer:**
 ```
 FastAPI's dependency injection is handled through the Depends() function
-defined in fastapi/params.py (lines 746-749).
+defined in fastapi/params.py (lines 746–749).
 
 At request time, solve_dependencies() in fastapi/dependencies/utils.py
-(lines 347-421) walks the dependency tree depth-first, calls each
+(lines 347–421) walks the dependency tree depth-first, calls each
 dependency function, and injects results into your route handler.
 
 Sources:
-  fastapi/params.py                    lines 746-749   score 0.94
-  fastapi/dependencies/utils.py        lines 347-421   score 0.91
-  fastapi/routing.py                   lines 201-244   score 0.87
+  fastapi/params.py                lines 746–749
+  fastapi/dependencies/utils.py   lines 347–421
+  fastapi/routing.py               lines 201–244
 ```
 
 ---
@@ -32,32 +36,34 @@ Sources:
 ## Architecture
 
 ```
-Ingestion Pipeline (async, Celery worker):
-  GitHub URL → Clone → Walk files → AST chunk → Embed → Store in pgvector
+Ingestion pipeline
+  GitHub URL → Clone → Walk files → AST chunk (tree-sitter)
+             → Embed (Cohere API) → Store in pgvector
 
-Query Pipeline (real-time, streaming):
-  Question → Embed → Hybrid search (BM25 + vector) → Rerank → Groq → Stream
+Query pipeline
+  Question → Embed (Cohere API) → Hybrid search (BM25 + pgvector)
+           → Reciprocal Rank Fusion → Groq LLM → SSE stream
 ```
 
 ### Key technical decisions
 
 **Hybrid retrieval (BM25 + pgvector)**
-Pure vector search finds semantically similar text but misses exact matches — a question about `solve_dependencies` returns documentation instead of the function definition. BM25 catches exact token matches. Reciprocal Rank Fusion combines both ranked lists into one.
-
-**Cross-encoder reranking**
-After hybrid search retrieves 20 candidates, a cross-encoder model (`ms-marco-MiniLM`) scores each `(question, chunk)` pair directly — much more precise than cosine similarity alone. Top 5 go to the LLM.
+Pure vector search finds semantically similar text but misses exact matches — a question about `solve_dependencies` returned French documentation instead of the function definition. BM25 catches exact token matches. Reciprocal Rank Fusion merges both ranked lists. Hybrid search fixed the docs-over-source-code problem completely.
 
 **AST-aware chunking (tree-sitter)**
-Line-based chunking cuts functions in half. tree-sitter parses Python ASTs and extracts complete functions and classes as individual chunks. A 60-line function becomes one semantically complete unit.
+Line-based chunking cuts functions in half, making embeddings incoherent. tree-sitter parses Python ASTs and extracts complete functions and classes as individual chunks. A 60-line function becomes one semantically complete unit.
 
 **Dependency graph expansion**
-Import statements are parsed during ingestion and stored as an adjacency list. When `auth/routes.py` is retrieved, chunks from `auth/utils.py` (which routes.py imports) are automatically included in context — giving the LLM the full call chain.
+Import statements are parsed at ingestion time and stored as an adjacency list. When `auth/routes.py` is retrieved, chunks from `auth/utils.py` (which routes.py imports) are automatically added — giving the LLM the full call chain, not just the entry point.
 
-**Async ingestion (Celery)**
-Ingestion of a large repo takes 8+ minutes. The API returns a `job_id` immediately. A Celery worker processes in the background. Client polls `/api/v1/ingest/{job_id}/status`.
+**Cohere embeddings via HTTP API**
+Embedding models loaded locally (sentence-transformers) exceed the 512 MB RAM limit on Render's free tier. Replaced with Cohere's `embed-english-light-v3.0` via HTTP API — same 384-dim output, zero local memory overhead, with retry logic and exponential backoff for rate limits.
+
+**Semantic cache**
+Answers are stored with their question embedding. On each new query, a cosine similarity check (threshold 0.92) runs first. A cache hit returns the answer in ~50ms instead of ~4s. Cache is invalidated when the repo is re-indexed.
 
 **Streaming responses (SSE)**
-The `/api/v2/query` endpoint streams tokens as Groq generates them — sources arrive first, then the answer streams word by word.
+`POST /api/v2/query` streams tokens as Groq generates them. Sources arrive first as a JSON event, then the answer streams word by word.
 
 ---
 
@@ -65,19 +71,18 @@ The `/api/v2/query` endpoint streams tokens as Groq generates them — sources a
 
 | Layer | Technology |
 |---|---|
-| API framework | FastAPI (async) |
-| Database | PostgreSQL 16 + pgvector (HNSW index) |
+| API | FastAPI (async) |
+| Database | PostgreSQL 16 + pgvector (HNSW index) — Neon |
 | ORM + migrations | SQLAlchemy 2.0 async + Alembic |
 | Vector search | pgvector cosine similarity |
 | Keyword search | BM25 (rank-bm25) |
-| Embeddings | sentence-transformers (all-MiniLM-L6-v2, local) |
-| Reranking | CrossEncoder (ms-marco-MiniLM, local) |
+| Embeddings | Cohere API (`embed-english-light-v3.0`, 384-dim) |
 | Code parsing | tree-sitter |
 | LLM | Groq API (llama-3.1-8b-instant) |
-| Task queue | Celery + Redis |
-| Frontend | React + Vite |
+| Task queue | Celery + Redis — Upstash |
+| Frontend | React 19 + Vite 8 |
 | Package manager | uv |
-| Containerization | Docker + docker-compose |
+| Hosting | Render (Docker) |
 
 ---
 
@@ -86,148 +91,138 @@ The `/api/v2/query` endpoint streams tokens as Groq generates them — sources a
 ```
 codesync/
 ├── app/
-│   ├── api/routes/          # HTTP layer — ingest, query, query_v2
+│   ├── api/routes/          # HTTP layer — ingest, query v1, query v2 (SSE)
 │   ├── core/
 │   │   ├── ingestion/       # cloner, file_walker, chunker, embedder, tasks
-│   │   └── retrieval/       # searcher (hybrid+rerank), generator (stream)
+│   │   └── retrieval/       # searcher (hybrid BM25+vector+RRF), generator
 │   ├── db/
 │   │   ├── models.py        # SQLAlchemy table definitions
 │   │   ├── session.py       # async connection pool
-│   │   └── repositories/    # all SQL — repository pattern
-│   ├── config.py            # pydantic-settings, all config from env vars
-│   └── main.py              # FastAPI app, router registration
-├── frontend/                # React + Vite UI
-├── alembic/                 # database migrations
-├── docker/postgres/         # pgvector extension setup
-└── docker-compose.yml       # postgres + redis
+│   │   └── repositories/    # all SQL queries — repository pattern
+│   ├── config.py            # pydantic-settings, config from env vars only
+│   └── main.py              # FastAPI app, static serving, lifespan migrations
+├── frontend/                # React 19 + Vite source
+├── static/                  # built frontend (served by FastAPI in production)
+└── alembic/                 # database migrations
 ```
 
 ---
 
-## API Endpoints
+## API
 
 ```
-POST /api/v1/ingest                    Queue a repo for indexing
-GET  /api/v1/ingest/{job_id}/status   Poll ingestion progress
-POST /api/v1/query                     Query (full JSON response)
-POST /api/v2/query                     Query (SSE streaming)
-GET  /health                           Health check
+POST /api/v1/ingest                     Index a repository
+GET  /api/v1/ingest/{job_id}/status    Poll ingestion progress
+POST /api/v1/query                      Query — full JSON + semantic cache
+POST /api/v2/query                      Query — SSE streaming
+GET  /health                            Health check
 ```
-
----
-
-## Running Locally
-
-**Prerequisites:** Docker Desktop, Python 3.11+, Node.js 18+, uv
-
-```bash
-# Clone
-git clone https://github.com/lavkesh1709/codesync.git
-cd codesync
-
-# Install Python dependencies
-uv sync
-
-# Copy env and fill in your Groq API key
-cp .env.example .env
-
-# Start infrastructure
-docker-compose up -d
-
-# Run database migrations
-uv run alembic upgrade head
-
-# Start API server
-uv run uvicorn app.main:app --reload --port 8000
-
-# Start Celery worker (new terminal)
-uv run celery -A app.core.ingestion.tasks.celery_app worker --loglevel=info --pool=solo
-
-# Start frontend (new terminal)
-cd frontend && npm install && npm run dev
-```
-
-Open http://localhost:5173
-
-**Get a free Groq API key at:** https://console.groq.com
-
----
-
-## Usage
 
 **Index a repository:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/ingest \
+curl -X POST https://codesync-cee8.onrender.com/api/v1/ingest \
   -H "Content-Type: application/json" \
   -d '{"repo_url": "https://github.com/tiangolo/fastapi", "repo_id": "fastapi"}'
 ```
 
 **Query it:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/query \
+curl -X POST https://codesync-cee8.onrender.com/api/v1/query \
   -H "Content-Type: application/json" \
   -d '{"repo_id": "fastapi", "question": "How does routing work?"}'
 ```
 
 ---
 
-## What I learned building this
+## Running Locally
 
-The quality of a RAG system is entirely determined by retrieval quality — not the LLM. Improving the prompt had almost no effect. Improving what gets retrieved made answers dramatically better.
+**Prerequisites:** Python 3.11+, Node.js 18+, uv, git
 
-Key insights:
+**Free accounts required:**
+- [Neon](https://neon.tech) — cloud Postgres with pgvector
+- [Upstash](https://upstash.com) — cloud Redis
+- [Groq](https://console.groq.com) — LLM API
+- [Cohere](https://dashboard.cohere.com) — embeddings API
 
-- **Pure vector search is insufficient for code** — it finds semantically similar text but misses exact matches. Hybrid BM25+vector fixed the case where a question about `solve_dependencies` returned French documentation instead of the function definition.
+```bash
+git clone https://github.com/lavkesh1709/codesync.git
+cd codesync
 
-- **Chunking strategy matters more than model choice** — line-based chunking cut functions in half, making embeddings meaningless. AST-aware chunking with tree-sitter made each chunk a semantically complete unit.
+uv sync
 
-- **The repository pattern pays off** — separating SQL into `db/repositories/` meant swapping pgvector configurations required changing one file. Nothing else broke.
+cp .env.example .env
+# Fill in DATABASE_URL, GROQ_API_KEY, COHERE_API_KEY, REDIS_URL
 
-- **Async from day one** — retrofitting async into sync FastAPI is painful. The decision to use `async def` everywhere from the first file saved significant refactoring.
+uv run alembic upgrade head
+```
+
+Then open three terminals:
+
+```bash
+# Terminal 1 — API
+uv run uvicorn app.main:app --reload --port 8000
+
+# Terminal 2 — Celery worker (async ingestion)
+uv run celery -A app.core.ingestion.tasks.celery_app worker --loglevel=info --pool=solo
+
+# Terminal 3 — Frontend
+cd frontend && npm install && npm run dev
+```
+
+Open http://localhost:5173
+
+No Docker Desktop required. Neon and Upstash are cloud services — the same instances used in production.
+
+---
+
+## What I Learned Building This
+
+The quality of a RAG system is determined by retrieval, not the LLM. Improving the prompt had almost no effect. Improving what gets retrieved made answers dramatically better.
+
+**Things that actually mattered:**
+
+- **Chunking strategy beats model choice.** Line-based chunking cut functions in half. AST chunking with tree-sitter made each chunk a semantically complete unit. This single change improved retrieval quality more than any model swap.
+
+- **Pure vector search fails on code.** The first version returned French documentation when asked about `solve_dependencies`. BM25 catches exact identifier matches that cosine similarity misses. Hybrid retrieval with RRF fixed it completely.
+
+- **Latency comes from embedding, not the LLM.** The slow part of the query pipeline is embedding the question, not Groq generating the answer. Semantic caching eliminates this for repeated questions — 50ms vs 4s.
+
+- **Repository pattern pays off fast.** All SQL lives in `db/repositories/`. Switching the embedding backend from local sentence-transformers to Cohere's API required changing one file. Nothing else broke.
+
+- **Async from the first line.** Retrofitting async into sync FastAPI is painful. Starting with `async def` everywhere from day one saved significant refactoring when adding streaming endpoints and background workers.
 
 ---
 
 ## Roadmap
 
-- [ ] Semantic caching — similar questions return cached answers in ~50ms
-- [ ] Circuit breaker — auto-failover from Groq to Gemini
-- [ ] HyDE (Hypothetical Document Embeddings) — embed a hypothetical answer instead of the raw question for better retrieval
+- [x] Hybrid retrieval — BM25 + pgvector + Reciprocal Rank Fusion
+- [x] AST-aware chunking with tree-sitter
+- [x] Dependency graph (import adjacency list)
+- [x] Async ingestion with Celery + job status polling
+- [x] Streaming responses (SSE)
+- [x] Semantic cache (pgvector similarity, 0.92 threshold)
+- [x] Deployed to Render
+- [ ] HyDE — embed a hypothetical answer instead of the raw question
 - [ ] Hierarchical index — directory and file summaries for large repo navigation
-- [ ] Deploy to Render
+- [ ] Cross-encoder reranking (disabled on free tier RAM limit)
+- [ ] Circuit breaker — auto-failover from Groq to Gemini
+- [ ] Private repository support via GitHub PAT
 
 ---
 
 ## Known Limitations
 
-**Import parsing is Python-only**  
-The dependency graph expansion uses Python's `ast` module. JS/TS/Go repos 
-get no import-based context expansion. tree-sitter grammars exist for all 
-these languages — straightforward to extend in a future phase.
+**Ingestion is slow on the free tier**
+Cohere's free trial key is rate-limited to ~30 calls/minute. Indexing a large repo (10,000+ chunks) takes 8–10 minutes. The pipeline retries automatically on rate limit responses.
 
-**Embedding model truncation**  
-`all-MiniLM-L6-v2` has a 256 token input limit. Functions longer than ~190 
-words get truncated silently. tree-sitter chunking mitigates this by keeping 
-most functions under the limit — but very long functions still get cut.
+**Import parsing is Python-only**
+The dependency graph uses Python's `ast` module. JS/TS/Go repos get no import-based context expansion.
 
-**Ingestion speed**  
-Embedding 12,000+ chunks on CPU takes ~8 minutes. A GPU would reduce this 
-to under 1 minute. Celery makes this non-blocking — the API returns instantly, 
-embedding happens in the background.
+**No rate limiting**
+The API has no per-client rate limiting — the Groq and Cohere keys can be exhausted in production without it.
 
-**BM25 cache is per-process**  
-Each process builds its own in-memory BM25 index on first query. Multiple 
-Celery workers produce inconsistent cache state. Fix: serialize index to Redis 
-— planned in Phase 4.
+**Private repositories not supported**
+Public GitHub URLs only.
 
-**No rate limiting**  
-The API has no per-client rate limiting — planned in Phase 4 using Redis 
-token buckets to protect the Groq API key in production.
-
-**Private repositories not supported**  
-Cloner only handles public GitHub URLs. GitHub personal access token support 
-would enable private repos — straightforward addition not yet implemented.
-
-**Fixed chunk size for non-Python files**  
-40 lines works well for Python with tree-sitter fallback. For other languages 
-(Go functions can be 200+ lines, Java classes 500+) the fixed size can produce 
-incomplete semantic units.
+**Cross-encoder reranking disabled in production**
+The ms-marco-MiniLM cross-encoder requires ~400 MB RAM. Disabled on Render's free tier (512 MB total). Re-enables automatically if `ENABLE_RERANKING=true` is set on a paid instance.
