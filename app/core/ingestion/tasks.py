@@ -90,13 +90,20 @@ def ingest_repo_task(self, repo_url: str, repo_id: str) -> dict:
                 overlap=settings.chunk_overlap_lines,
             )
 
-            self.update_state(state="PROGRESS", meta={"step": "embedding"})
-            embedded = embed_chunks(chunks)
+            BATCH_SIZE = 200
+            total_batches = max(1, (len(chunks) + BATCH_SIZE - 1) // BATCH_SIZE)
+            chunks_created = 0
 
-            self.update_state(state="PROGRESS", meta={"step": "storing"})
-            async with TaskSessionLocal() as db:
-                chunks_created = await insert_chunks(db, repo_id, embedded)
-                await db.commit()
+            for i, batch_start in enumerate(range(0, len(chunks), BATCH_SIZE)):
+                batch = chunks[batch_start : batch_start + BATCH_SIZE]
+                self.update_state(
+                    state="PROGRESS",
+                    meta={"step": "embedding", "batch": i + 1, "total": total_batches},
+                )
+                embedded_batch = embed_chunks(batch)
+                async with TaskSessionLocal() as db:
+                    chunks_created += await insert_chunks(db, repo_id, embedded_batch)
+                    await db.commit()
 
             self.update_state(state="PROGRESS", meta={"step": "parsing_imports"})
             from app.core.ingestion.import_parser import parse_all_imports

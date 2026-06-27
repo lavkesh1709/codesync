@@ -23,6 +23,11 @@ COPY uv.lock .
 # Install Python dependencies
 RUN uv sync --frozen --no-dev
 
+# Fix cache path so build-time download and runtime both use the same location.
+# Without this fastembed defaults to ~/.cache/fastembed/ which can resolve differently
+# between build and runtime, causing a re-download on the 512MB Render instance (OOM).
+ENV FASTEMBED_CACHE_PATH=/app/.fastembed_cache
+
 # Pre-download the fastembed model during build so it's baked into the image.
 # This avoids a ~130MB download at runtime on a 512MB instance (which causes OOM).
 RUN uv run python3 -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
