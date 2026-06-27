@@ -11,8 +11,8 @@ log = structlog.get_logger()
 COHERE_EMBED_URL = "https://api.cohere.com/v2/embed"
 COHERE_MODEL = "embed-english-light-v3.0"  # 384-dim, free tier
 COHERE_BATCH_SIZE = 96  # Cohere's max texts per request
-# Free tier = 100 calls/min; 0.65s between batches keeps us safely under the limit
-_BATCH_DELAY = 0.65
+# Free tier trial key is aggressively limited; 2s between batches (~30 calls/min) avoids 429s
+_BATCH_DELAY = 2.0
 _MAX_RETRIES = 4
 
 
