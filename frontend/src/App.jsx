@@ -12,7 +12,7 @@ export default function App() {
     repoUrl: '',
     repoId: '',
     status: null,
-    logs: [{ time: '--:--:--', msg: 'CodeSync ready. Paste a GitHub URL and click Index.', type: 'info' }],
+    logs: [{ time: '--:--:--', msg: 'Ready. Paste a GitHub URL and click Index.', type: 'info' }],
     progress: 0,
     loading: false,
   })
@@ -26,106 +26,94 @@ export default function App() {
 
   useEffect(() => {
     checkHealth()
-      .then(data => setServerStatus(`api:${data.env} — online`))
-      .catch(() => setServerStatus('server offline'))
+      .then(data => setServerStatus(`${data.env} — online`))
+      .catch(() => setServerStatus('offline'))
   }, [])
 
-  const accent = dark ? '#f59e0b' : '#b45309'
-  const borderColor = dark ? 'rgba(180,83,9,0.2)' : '#e9e0c8'
-  const headerBg = dark ? 'rgba(17,16,16,0.97)' : 'rgba(255,255,255,0.95)'
-  const textDim = dark ? '#a8a29e' : '#78716c'
-  const titleColor = dark ? '#f5f0eb' : '#1c1917'
+  const online = !serverStatus.includes('offline') && serverStatus !== 'connecting...'
 
   return (
     <div style={{ minHeight: '100vh' }}>
+
       <header style={{
-        borderBottom: `1px solid ${borderColor}`,
-        padding: '0 32px',
+        borderBottom: '1px solid var(--border)',
+        padding: '0 24px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        height: '60px',
-        background: headerBg,
-        backdropFilter: 'blur(10px)',
+        height: '52px',
+        background: 'var(--bg)',
         position: 'sticky',
         top: 0,
         zIndex: 100,
-        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
       }}>
-        <div style={{ fontFamily: 'var(--display)', fontWeight: 800, fontSize: '20px', color: titleColor }}>
-          Code<span style={{ color: accent }}>Sync</span>
-        </div>
+        <span style={{
+          fontFamily: 'var(--sans)',
+          fontWeight: 600,
+          fontSize: '15px',
+          color: 'var(--text)',
+          letterSpacing: '-0.2px',
+        }}>
+          CodeSync
+        </span>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          {/* Server status */}
-          <div style={{ fontSize: '11px', color: textDim, display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--mono)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-2)' }}>
             <span style={{
-              width: '7px', height: '7px', borderRadius: '50%',
-              background: serverStatus.includes('offline') ? '#dc2626' : '#059669',
-              display: 'inline-block',
+              width: '6px', height: '6px', borderRadius: '50%',
+              background: online ? 'var(--green)' : 'var(--text-3)',
+              display: 'inline-block', flexShrink: 0,
             }} />
             {serverStatus}
           </div>
 
-          {/* Theme toggle */}
           <button
             onClick={() => setDark(d => !d)}
-            title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title="Toggle theme"
             style={{
-              width: '36px',
-              height: '20px',
-              borderRadius: '10px',
-              border: `1.5px solid ${borderColor}`,
-              background: dark ? '#b45309' : '#e9e0c8',
+              width: '30px', height: '30px',
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
+              background: 'transparent',
               cursor: 'pointer',
-              position: 'relative',
-              transition: 'background 0.25s, border-color 0.25s',
-              flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--text-2)',
+              fontSize: '15px',
+              lineHeight: 1,
+              transition: 'background 0.12s, color 0.12s',
             }}
           >
-            <span style={{
-              position: 'absolute',
-              top: '2px',
-              left: dark ? '17px' : '2px',
-              width: '12px',
-              height: '12px',
-              borderRadius: '50%',
-              background: '#fff',
-              transition: 'left 0.25s',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '7px',
-            }}>
-              {dark ? '🌙' : '☀'}
-            </span>
+            {dark ? '☀' : '◑'}
           </button>
         </div>
       </header>
 
-      <nav style={{ borderBottom: `1px solid ${borderColor}`, padding: '0 32px', display: 'flex', background: headerBg, backdropFilter: 'blur(8px)' }}>
+      <nav style={{
+        borderBottom: '1px solid var(--border)',
+        padding: '0 24px',
+        display: 'flex',
+        background: 'var(--bg)',
+      }}>
         {[
-          { to: '/', label: '01 / Index Repository' },
-          { to: '/query', label: '02 / Query Codebase' },
+          { to: '/',      label: 'Index' },
+          { to: '/query', label: 'Query' },
         ].map(({ to, label }) => (
           <NavLink key={to} to={to} end style={({ isActive }) => ({
-            padding: '14px 20px',
-            fontSize: '12px',
-            fontFamily: 'var(--mono)',
+            padding: '11px 14px',
+            fontSize: '13px',
             fontWeight: 500,
-            color: isActive ? accent : textDim,
-            borderBottom: isActive ? `2px solid ${accent}` : '2px solid transparent',
+            color: isActive ? 'var(--text)' : 'var(--text-2)',
+            borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
             textDecoration: 'none',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px',
-            transition: 'all 0.15s',
+            transition: 'color 0.12s',
+            marginBottom: '-1px',
           })}>
             {label}
           </NavLink>
         ))}
       </nav>
 
-      <main style={{ maxWidth: '1100px', margin: '0 auto', padding: '40px 32px' }}>
+      <main style={{ maxWidth: '860px', margin: '0 auto', padding: '32px 24px' }}>
         <Routes>
           <Route path="/" element={
             <IngestPage
