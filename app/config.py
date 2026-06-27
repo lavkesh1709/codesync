@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     groq_api_key: str
     groq_model: str = "llama-3.1-8b-instant"
 
+    # Cohere
+    cohere_api_key: str
+
     # Ollama
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"

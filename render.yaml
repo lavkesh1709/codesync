@@ -13,8 +13,8 @@ services:
         sync: false
       - key: GROQ_MODEL
         value: llama-3.1-8b-instant
-      - key: EMBEDDING_MODEL
-        value: BAAI/bge-small-en-v1.5
+      - key: COHERE_API_KEY
+        sync: false
       - key: APP_ENV
         value: production
       - key: LOG_LEVEL
@@ -47,8 +47,8 @@ services:
         sync: false
       - key: GROQ_MODEL
         value: llama-3.1-8b-instant
-      - key: EMBEDDING_MODEL
-        value: BAAI/bge-small-en-v1.5
+      - key: COHERE_API_KEY
+        sync: false
       - key: APP_ENV
         value: production
       - key: LOG_LEVEL
