@@ -193,53 +193,36 @@ async def search(
         bm25_count=len(bm25_chunks),
     )
 
-    # Combine with RRF — get more candidates than top_k for reranking
-    fused = _reciprocal_rank_fusion(vector_chunks, bm25_chunks)
-    candidates = fused[:top_k * 4]  # reranker needs more candidates
+    try:
+        # Combine with RRF — get more candidates than top_k for reranking
+        fused = _reciprocal_rank_fusion(vector_chunks, bm25_chunks)
+        candidates = fused[:top_k * 4]  # reranker needs more candidates
 
-    # Rerank candidates with cross-encoder for precise relevance scoring
-    # Disabled on memory-constrained hosts via ENABLE_RERANKING=false
-    if settings.enable_reranking:
-        retrieved = _rerank(question, candidates, top_k)
-    else:
-        retrieved = candidates[:top_k]
+        # Rerank candidates with cross-encoder for precise relevance scoring
+        # Disabled on memory-constrained hosts via ENABLE_RERANKING=false
+        if settings.enable_reranking:
+            retrieved = _rerank(question, candidates, top_k)
+        else:
+            retrieved = candidates[:top_k]
 
-    # Expand context — fetch chunks from files that retrieved files import
-    source_files = list({
-        chunk.file_path.replace("\\", "/")
-        for chunk in retrieved
-    })
+        # Hard cap — never send more than 10 chunks total to LLM
+        result = retrieved[:10]
 
-    from app.db.repositories.chunks import get_imported_files
-    imported_files = await get_imported_files(db, repo_id, source_files)
-
-    # Fetch chunks from imported files not already in retrieved set
-    expansion_chunks: list[Chunk] = []
-    if imported_files:
-        already_retrieved = {str(c.id) for c in retrieved}
-        for imp_file in imported_files[:5]:  # max 5 expansion files
-            imp_chunks = list(await search_similar(
-                db=db,
-                repo_id=repo_id,
-                query_embedding=query_embedding,
-                top_k=2,
-            ))
-            for c in imp_chunks:
-                if (str(c.id) not in already_retrieved
-                        and c.file_path.replace("\\", "/") == imp_file):
-                    expansion_chunks.append(c)
-                    already_retrieved.add(str(c.id))
-
-    # Hard cap — never send more than 10 chunks total to LLM
-    result = (retrieved + expansion_chunks)[:10]
-
-    log.info(
-        "search_complete",
-        chunks_returned=len(result),
-        retrieved=len(retrieved),
-        expanded=len(expansion_chunks),
-    )
-    return result       
+        log.info(
+            "search_complete",
+            chunks_returned=len(result),
+            retrieved=len(retrieved),
+        )
+        return result
+    except Exception as exc:
+        import traceback
+        log.error(
+            "search_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            traceback=traceback.format_exc(),
+        )
+        raise
   
 
 def invalidate_bm25_cache(repo_id: str) -> None:

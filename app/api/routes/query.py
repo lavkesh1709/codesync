@@ -76,14 +76,22 @@ async def query(
         )
 
     # Cache miss — run full pipeline
-    chunks = await search(
-        db=db,
-        repo_id=request.repo_id,
-        question=request.question,
-        top_k=request.top_k,
-    )
+    try:
+        chunks = await search(
+            db=db,
+            repo_id=request.repo_id,
+            question=request.question,
+            top_k=request.top_k,
+        )
+    except Exception as exc:
+        log.error("search_error", error=str(exc), repo_id=request.repo_id)
+        raise HTTPException(status_code=500, detail=f"Search failed: {exc}") from exc
 
-    answer = await generate(question=request.question, chunks=chunks)
+    try:
+        answer = await generate(question=request.question, chunks=chunks)
+    except Exception as exc:
+        log.error("generate_error", error=str(exc), repo_id=request.repo_id)
+        raise HTTPException(status_code=500, detail=f"Generation failed: {exc}") from exc
 
     latency_ms = int((time.monotonic() - start) * 1000)
 

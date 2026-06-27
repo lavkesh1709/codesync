@@ -47,12 +47,16 @@ async def query_stream(
         )
 
     # Retrieve and rerank chunks
-    chunks = await search(
-        db=db,
-        repo_id=request.repo_id,
-        question=request.question,
-        top_k=request.top_k,
-    )
+    try:
+        chunks = await search(
+            db=db,
+            repo_id=request.repo_id,
+            question=request.question,
+            top_k=request.top_k,
+        )
+    except Exception as exc:
+        log.error("search_error", error=str(exc), repo_id=request.repo_id)
+        raise HTTPException(status_code=500, detail=f"Search failed: {exc}") from exc
 
     # Build sources list for the client
     sources = [
