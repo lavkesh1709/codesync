@@ -22,10 +22,14 @@ _reranker = None
 def _get_reranker():
     global _reranker
     if _reranker is None:
-        from sentence_transformers import CrossEncoder
-        log.info("reranker_loading")
-        _reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-        log.info("reranker_ready")
+        try:
+            from sentence_transformers import CrossEncoder
+            log.info("reranker_loading")
+            _reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+            log.info("reranker_ready")
+        except (ImportError, ModuleNotFoundError):
+            log.warning("reranker_unavailable", reason="sentence_transformers not installed, falling back to RRF ranking")
+            return None
     return _reranker
 
 
@@ -96,11 +100,15 @@ def _rerank(
     if not chunks:
         return []
 
+    reranker = _get_reranker()
+    if reranker is None:
+        return chunks[:top_k]
+
     # Build (question, chunk_content) pairs
     pairs = [[question, chunk.content] for chunk in chunks]
 
     # Score all pairs — returns array of relevance scores
-    scores = _get_reranker().predict(pairs)
+    scores = reranker.predict(pairs)
 
     # Sort chunks by score descending
     scored = sorted(

@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     log_level: str = "INFO"
-    enable_reranking: bool = True
+    enable_reranking: bool = False
 
     # Ingestion
     max_file_size_mb: int = 1
