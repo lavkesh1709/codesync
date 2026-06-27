@@ -1,3 +1,5 @@
+import time
+
 import httpx
 import structlog
 
@@ -9,25 +11,41 @@ log = structlog.get_logger()
 COHERE_EMBED_URL = "https://api.cohere.com/v2/embed"
 COHERE_MODEL = "embed-english-light-v3.0"  # 384-dim, free tier
 COHERE_BATCH_SIZE = 96  # Cohere's max texts per request
+# Free tier = 100 calls/min; 0.65s between batches keeps us safely under the limit
+_BATCH_DELAY = 0.65
+_MAX_RETRIES = 4
 
 
 def _call_cohere(texts: list[str], input_type: str) -> list[list[float]]:
     results: list[list[float]] = []
     for i in range(0, len(texts), COHERE_BATCH_SIZE):
         batch = texts[i : i + COHERE_BATCH_SIZE]
-        r = httpx.post(
-            COHERE_EMBED_URL,
-            headers={"Authorization": f"Bearer {settings.cohere_api_key}"},
-            json={
-                "texts": batch,
-                "model": COHERE_MODEL,
-                "input_type": input_type,
-                "embedding_types": ["float"],
-            },
-            timeout=60,
-        )
-        r.raise_for_status()
-        results.extend(r.json()["embeddings"]["float"])
+        backoff = 60
+        for attempt in range(_MAX_RETRIES):
+            r = httpx.post(
+                COHERE_EMBED_URL,
+                headers={"Authorization": f"Bearer {settings.cohere_api_key}"},
+                json={
+                    "texts": batch,
+                    "model": COHERE_MODEL,
+                    "input_type": input_type,
+                    "embedding_types": ["float"],
+                },
+                timeout=60,
+            )
+            if r.status_code == 429:
+                wait = int(r.headers.get("retry-after", backoff))
+                log.warning("cohere_rate_limited", wait_seconds=wait, attempt=attempt + 1)
+                time.sleep(wait)
+                backoff = min(backoff * 2, 300)
+                continue
+            r.raise_for_status()
+            results.extend(r.json()["embeddings"]["float"])
+            break
+        else:
+            r.raise_for_status()  # exhausted retries — propagate the last 429
+        if i + COHERE_BATCH_SIZE < len(texts):
+            time.sleep(_BATCH_DELAY)
     return results
 
 
