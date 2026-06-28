@@ -1,7 +1,7 @@
 # CodeSync — Complete Project Specification
 
-**Version:** 6.0
-**Status:** Phase 5 Complete — Live on Render
+**Version:** 7.0
+**Status:** Phase 5 + CI/CD Complete — Live on Render
 **Last updated:** June 2026
 **Live URL:** https://codesync-cee8.onrender.com
 **GitHub:** https://github.com/lavkesh1709/codesync
@@ -182,6 +182,27 @@ Known production constraints:
 - No Celery worker → ingestion blocks web request in production
 - ENABLE_RERANKING=false → cross-encoder disabled to stay under 512MB RAM
 - No rate limiting on API endpoints → Groq/Cohere keys unprotected
+
+---
+
+### Phase 5.5 — CI/CD + Unit Tests ✅ COMPLETE
+
+What was built:
+- GitHub Actions workflow (`.github/workflows/ci.yml`) — runs on every push to master
+  - `backend-tests` job: installs Python 3.11 + uv, runs 34 pytest unit tests
+  - `frontend-build` job: installs Node 20, runs `npm ci && npm run build`
+  - Both jobs run in parallel on Ubuntu (Linux matches Render's prod environment)
+  - Dummy env vars injected in CI so pydantic-settings doesn't reject missing keys
+- 34 unit tests across 5 files — all pure function tests, zero real API calls:
+  - `test_rrf.py` (7) — `_reciprocal_rank_fusion()`: scoring, empty inputs, shared-list boost
+  - `test_tokenizer.py` (9) — `_tokenize()`: lowercase, code punctuation, snake_case, length filter
+  - `test_chunker.py` (8) — `_chunk_lines()` + `chunk_file()`: overlap math, line numbers, AST dispatch
+  - `test_import_parser.py` (7) — `parse_imports()`: from/import resolution, missing imports, dedup, syntax errors
+  - `test_health.py` (3) — `GET /health`: status 200, `{"status":"ok"}`, env field present
+- `tests/conftest.py` — sets dummy `DATABASE_URL`, `GROQ_API_KEY`, `COHERE_API_KEY`
+  before any module is imported so `Settings()` validation passes in tests
+
+GitHub now shows green ✓ / red ✗ on every commit.
 
 ---
 
@@ -482,6 +503,8 @@ instances already running. Zero migration at deploy time.
 | uv | Package manager | 1 | ✅ active |
 | sentence-transformers | Embeddings (local) | 1 | ❌ removed — OOM |
 | CrossEncoder | Reranking (local) | 3 | ⏸ disabled prod |
+| pytest + pytest-asyncio | Unit testing | 5.5 | ✅ 34 tests |
+| GitHub Actions | CI/CD pipeline | 5.5 | ✅ active |
 
 ### Frontend
 | Tool | Purpose | Phase |
@@ -705,9 +728,21 @@ codesync/
 │   ├── 9ff893b2_add_file_imports_table.py
 │   ├── 92ac5b8f_add_cache_entries_table.py
 │   └── cf4fa4ee_add_error_message_to_repos.py
+├── .github/
+│   └── workflows/
+│       └── ci.yml               ✅ backend tests + frontend build on push
+├── tests/
+│   ├── conftest.py              ✅ dummy env vars for unit tests
+│   ├── unit/
+│   │   ├── test_rrf.py          ✅ 7 tests for RRF algorithm
+│   │   ├── test_tokenizer.py    ✅ 9 tests for BM25 tokenizer
+│   │   ├── test_chunker.py      ✅ 8 tests for chunker overlap + AST dispatch
+│   │   ├── test_import_parser.py✅ 7 tests for import resolver
+│   │   └── test_health.py       ✅ 3 tests for /health endpoint
+│   └── integration/             (placeholder — no integration tests yet)
 ├── Dockerfile                   ✅
 ├── render.yaml                  ✅
-├── pyproject.toml               ✅
+├── pyproject.toml               ✅ dev extras: pytest, pytest-asyncio, ruff, mypy
 ├── uv.lock                      ✅ committed
 ├── .env.example                 ✅ no real keys
 └── README.md                    ✅ live URL, Cohere stack, clean setup guide
@@ -866,3 +901,8 @@ Requires >512MB RAM. Render Starter plan is $7/month, 1GB RAM.
 |     | Decisions 18–19 added |
 |     | Current production state table added |
 |     | Known limitations updated to reflect live deployment |
+| 7.0 | Phase 5.5 complete: GitHub Actions CI/CD + 34 unit tests |
+|     | .github/workflows/ci.yml: backend-tests + frontend-build jobs in parallel |
+|     | tests/unit/: test_rrf, test_tokenizer, test_chunker, test_import_parser, test_health |
+|     | tests/conftest.py: dummy env vars so Settings() validates without real keys |
+|     | Folder structure and tech stack table updated |
