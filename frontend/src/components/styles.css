@@ -2,8 +2,9 @@
 .card {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
+  box-shadow: var(--card-shadow);
 }
 
 body.dark .card { background: var(--bg2); }
@@ -59,14 +60,19 @@ body.dark .form-input { background: var(--bg3); }
 }
 
 .btn-primary {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
+  background: linear-gradient(135deg, #5b52f0 0%, #4338ca 100%);
+  color: #fff;
+  border-color: #4338ca;
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.3);
 }
 
-.btn-primary:hover:not(:disabled) { background: var(--accent-h); border-color: var(--accent-h); }
-.btn-primary:active:not(:disabled) { opacity: 0.9; }
-.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+  border-color: #3730a3;
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:active:not(:disabled) { opacity: 0.92; transform: translateY(1px); }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 
 /* ── Chip ─────────────────────────────────────────── */
 .chip {
@@ -223,9 +229,10 @@ body.dark .step-circle { background: var(--bg2); }
 /* ── Terminal ─────────────────────────────────────── */
 .terminal {
   background: var(--term-bg);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
-  border: 1px solid #1f1f27;
+  border: 1px solid #1a1a24;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.2);
 }
 
 .terminal-bar {

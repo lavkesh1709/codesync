@@ -49,12 +49,25 @@ export default function QueryPage({ defaultRepoId }) {
   return (
     <div>
       {/* Heading */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
-          Query Codebase
-        </h1>
-        <p style={{ fontSize: '13px', color: 'var(--text-2)', lineHeight: 1.6 }}>
-          Ask questions in plain English — get answers with exact file and line citations.
+      <div style={{ marginBottom: '28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+          <div style={{
+            width: '34px', height: '34px', borderRadius: '9px',
+            background: 'var(--accent-bg)',
+            border: '1px solid rgba(99,102,241,0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </div>
+          <h1 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.4px', lineHeight: 1 }}>
+            Query Codebase
+          </h1>
+        </div>
+        <p style={{ fontSize: '13px', color: 'var(--text-2)', lineHeight: 1.6, marginLeft: '44px' }}>
+          Ask in plain English — get answers with exact file and line citations.
         </p>
       </div>
 
@@ -176,13 +189,25 @@ export default function QueryPage({ defaultRepoId }) {
 
       {/* Empty state */}
       {!hasResults && !error && (
-        <div style={{
-          textAlign: 'center',
-          padding: '64px 20px',
-          color: 'var(--text-3)',
-          fontSize: '14px',
-        }}>
-          Ask a question above to get started
+        <div style={{ textAlign: 'center', padding: '56px 20px' }}>
+          <div style={{
+            width: '52px', height: '52px', borderRadius: '14px',
+            background: 'var(--accent-bg)',
+            border: '1px solid rgba(99,102,241,0.18)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 16px',
+          }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </div>
+          <p style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-2)', marginBottom: '8px' }}>
+            Ask anything about the codebase
+          </p>
+          <p style={{ fontSize: '13px', color: 'var(--text-3)', lineHeight: 1.7 }}>
+            "How does authentication work?" · "Where is payment handled?"<br/>
+            "What does OrderService do?" · "How is middleware implemented?"
+          </p>
         </div>
       )}
     </div>

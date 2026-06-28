@@ -104,11 +104,24 @@ export default function IngestPage({ state, setState, onComplete }) {
   return (
     <div>
       {/* Heading */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
-          Index Repository
-        </h1>
-        <p style={{ fontSize: '13px', color: 'var(--text-2)', lineHeight: 1.6 }}>
+      <div style={{ marginBottom: '28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+          <div style={{
+            width: '34px', height: '34px', borderRadius: '9px',
+            background: 'var(--accent-bg)',
+            border: '1px solid rgba(99,102,241,0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+            </svg>
+          </div>
+          <h1 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.4px', lineHeight: 1 }}>
+            Index Repository
+          </h1>
+        </div>
+        <p style={{ fontSize: '13px', color: 'var(--text-2)', lineHeight: 1.6, marginLeft: '44px' }}>
           Clone, chunk, and embed a GitHub codebase for semantic search.
         </p>
       </div>

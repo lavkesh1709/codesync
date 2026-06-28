@@ -46,15 +46,16 @@ export default function App() {
         position: 'sticky',
         top: 0,
         zIndex: 100,
+        boxShadow: '0 1px 8px rgba(0,0,0,0.06)',
       }}>
         <span style={{
           fontFamily: 'var(--sans)',
-          fontWeight: 600,
+          fontWeight: 700,
           fontSize: '15px',
           color: 'var(--text)',
-          letterSpacing: '-0.2px',
+          letterSpacing: '-0.3px',
         }}>
-          CodeSync
+          Code<span style={{ color: 'var(--accent)' }}>Sync</span>
         </span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
