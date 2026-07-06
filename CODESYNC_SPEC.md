@@ -1,8 +1,8 @@
 # CodeSync — Complete Project Specification
 
-**Version:** 7.0
+**Version:** 7.1
 **Status:** Phase 5 + CI/CD Complete — Live on Render
-**Last updated:** June 2026
+**Last updated:** July 2026
 **Live URL:** https://codesync-cee8.onrender.com
 **GitHub:** https://github.com/lavkesh1709/codesync
 
@@ -246,6 +246,40 @@ Priority order based on interview value and implementation effort:
 8. **Private repository support** — LOW PRIORITY
    Accept GitHub PAT in request. Pass to git clone. Enables private repos.
    ~10 lines in cloner.py.
+
+9. **RAG eval harness (RAGAS-lite)** — HIGH PRIORITY
+   No evals exist today — only 34 unit tests on pure functions, zero coverage
+   of retrieval/generation quality. Build a golden set (~20-30 Q&A pairs
+   across 2-3 indexed repos) and score with RAGAS: faithfulness (grounding,
+   catches hallucination), context precision/recall (is retrieval finding
+   the right chunks), answer relevancy. Makes items 1-2 above measurable —
+   right now HyDE and the hierarchical index would ship on hypothesis alone
+   with no before/after numbers.
+
+10. **LLM observability (tracing)** — MEDIUM PRIORITY
+    generator.py logs duration/token counts via structlog but never full
+    prompts/responses, has no cost tracking, and no trace linking retrieval
+    → rerank → generation into one request. query_v2.py (streaming) logs
+    almost nothing. Add Langfuse (self-hostable, wraps raw httpx calls,
+    no LangChain dependency) or a lightweight trace-ID scheme threaded
+    through structlog context.
+
+11. **Retry + real Groq→Gemini fallback** — MEDIUM PRIORITY
+    generate() in generator.py makes a single attempt with no retry and
+    raises on any non-200. The "circuit breaker" item (#4 above) is
+    described in this spec but not implemented in app/ — no Gemini
+    references exist in code yet. Close that gap: add retry-with-backoff
+    on 429/5xx, then real Groq→Gemini failover.
+
+**Fine-tuning — evaluated and rejected.** Groq serves fixed hosted models
+over HTTP; we don't own the weights, so classic fine-tuning isn't available
+without self-hosting (vLLM/TGI), which would trade away Groq's inference
+speed for no clear benefit. Fine-tuning also solves the wrong problem here —
+it injects style/format compliance, not knowledge, and knowledge injection
+is what the RAG pipeline already does. At ~12,614 chunks and a handful of
+query types, the complexity (training data curation, regression evals,
+hosting) has near-zero ROI. Same posture as the Pinecone and LLM-chunking
+rejections below.
 
 ---
 
@@ -863,19 +897,55 @@ Break compound questions into sub-questions, retrieve for each separately.
 Already implemented (searcher.py). Set ENABLE_RERANKING=true.
 Requires >512MB RAM. Render Starter plan is $7/month, 1GB RAM.
 
+### Fine-tuning — Not adopting
+Groq hosts fixed models via API; weights aren't ours to fine-tune without
+self-hosting, which would sacrifice Groq's inference speed. Fine-tuning
+also targets the wrong failure mode — it teaches style/format, not facts,
+and RAG already handles knowledge injection. No measurable benefit at this
+scale (~12,614 chunks, narrow query variety) against real complexity cost.
+Interview answer: "I evaluated fine-tuning and skipped it — the ROI isn't
+there when retrieval quality is the actual bottleneck, and I can show the
+RAGAS numbers that led me to prioritize HyDE and the hierarchical index
+instead."
+
+### LLM observability — Not yet implemented, HIGH interview value
+Currently just structlog: duration_ms, prompt_tokens, completion_tokens
+per call (generator.py), no full prompt/response capture, no cost
+tracking, no cross-stage trace linking retrieval → rerank → generation.
+Langfuse is the natural fit — wraps raw httpx calls directly, no
+LangChain dependency required. Would let us inspect exactly which stage
+failed on a bad answer instead of guessing from disconnected log lines.
+
+### RAG evaluation (RAGAS) — Not yet implemented, blocks validating Phase 6
+Zero evals exist beyond 34 pure-function unit tests. Without a golden
+Q&A set and RAGAS scoring (faithfulness, context precision/recall,
+answer relevancy), HyDE and the hierarchical index would ship on
+hypothesis alone. This is the prerequisite for turning "I added HyDE"
+into "I added HyDE, faithfulness went from 0.71 to 0.86."
+
+### Serving reliability (retry + Groq→Gemini fallback) — Partially implemented
+Spec text (Decision 4, §6 item 4) describes Groq→Gemini failover, but no
+Gemini code exists in app/ yet — generate() in generator.py makes one
+attempt and raises on any non-200, no retry-with-backoff. Gap between
+documented and actual behavior; close it alongside rate limiting.
+
 ---
 
 ## 20. Phase 6 — Priority Order
 
 1. **HyDE** — lowest effort, highest interview value, next improvement
-2. **Hierarchical index** — solves large repo navigation, Greptile-level feature
-3. **Rate limiting** — Redis token buckets, protects API keys in production
-4. **Circuit breaker** — Groq → Gemini failover, removes LLM single point of failure
-5. **Re-enable reranking** — upgrade Render tier to 1GB, set ENABLE_RERANKING=true
-6. **BM25 cache to Redis** — consistency across workers, low priority at free tier
-7. **Private repo support** — GitHub PAT, ~10 lines in cloner.py
-8. **Architecture diagram** — visual for README and portfolio
-9. **Demo GIF in README** — record 20s clip: index repo → stream a query answer
+2. **RAG eval harness (RAGAS-lite)** — validates HyDE/hierarchical index with real numbers instead of hypothesis
+3. **Hierarchical index** — solves large repo navigation, Greptile-level feature
+4. **LLM observability (Langfuse or trace-ID scheme)** — full prompt/response + cross-stage tracing
+5. **Rate limiting** — Redis token buckets, protects API keys in production
+6. **Retry + real Groq → Gemini fallback** — closes gap between spec and code, removes LLM single point of failure
+7. **Re-enable reranking** — upgrade Render tier to 1GB, set ENABLE_RERANKING=true
+8. **BM25 cache to Redis** — consistency across workers, low priority at free tier
+9. **Private repo support** — GitHub PAT, ~10 lines in cloner.py
+10. **Architecture diagram** — visual for README and portfolio
+11. **Demo GIF in README** — record 20s clip: index repo → stream a query answer
+
+Fine-tuning evaluated and rejected — see §19.
 
 ---
 
@@ -906,3 +976,8 @@ Requires >512MB RAM. Render Starter plan is $7/month, 1GB RAM.
 |     | tests/unit/: test_rrf, test_tokenizer, test_chunker, test_import_parser, test_health |
 |     | tests/conftest.py: dummy env vars so Settings() validates without real keys |
 |     | Folder structure and tech stack table updated |
+| 7.1 | LLM-side advancement discussion added: fine-tuning, observability, evals, serving |
+|     | §6 Phase 6 roadmap: items 9-11 added (RAG eval harness, LLM observability, retry/fallback) |
+|     | §19 evaluation log: fine-tuning rejection, observability/RAGAS/serving gaps documented |
+|     | §20 priority order re-ranked — eval harness moved to #2, ahead of hierarchical index |
+|     | Flagged: Groq→Gemini fallback described in Decision 4 but not implemented in app/ |

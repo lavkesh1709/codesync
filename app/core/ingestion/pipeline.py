@@ -25,9 +25,9 @@ async def run_ingestion(repo_url: str, repo_id: str) -> None:
 
     start = time.monotonic()
 
-    async def set_status(status: str) -> None:
+    async def set_status(status: str, **extra) -> None:
         async with AsyncSessionLocal() as db:
-            await update_repo(db, repo_id, status=status)
+            await update_repo(db, repo_id, status=status, **extra)
             await db.commit()
 
     # Reset any previous state for this repo
@@ -36,6 +36,8 @@ async def run_ingestion(repo_url: str, repo_id: str) -> None:
         await insert_repo(db, repo_id, repo_url)
         await db.commit()
 
+    files_processed = 0
+    chunks_created = 0
     repo_path = None
     try:
         # Imports deferred inside try so any ImportError is caught and stored
@@ -53,6 +55,7 @@ async def run_ingestion(repo_url: str, repo_id: str) -> None:
 
         await set_status("walking")
         files = walk_files(repo_path, settings.max_file_size_mb)
+        files_processed = len(files)
 
         await set_status("chunking")
         chunks = chunk_files(
@@ -61,16 +64,29 @@ async def run_ingestion(repo_url: str, repo_id: str) -> None:
             overlap=settings.chunk_overlap_lines,
         )
 
-        await set_status("embedding")
-        # embed_chunks is sync and CPU-bound — run in thread pool so the
-        # event loop stays responsive for other requests during embedding
-        loop = asyncio.get_event_loop()
-        embedded = await loop.run_in_executor(None, embed_chunks, chunks)
+        await set_status("embedding", files_processed=files_processed)
 
-        await set_status("storing")
-        async with AsyncSessionLocal() as db:
-            chunks_created = await insert_chunks(db, repo_id, embedded)
-            await db.commit()
+        # Embed and store in batches so a failure partway through a long run
+        # (large repos need 100+ Cohere calls) keeps everything embedded so
+        # far instead of discarding it. embed_chunks is sync and CPU-bound —
+        # run each batch in a thread pool so the event loop stays responsive.
+        EMBED_BATCH_SIZE = 200
+        loop = asyncio.get_event_loop()
+
+        for batch_start in range(0, len(chunks), EMBED_BATCH_SIZE):
+            batch = chunks[batch_start : batch_start + EMBED_BATCH_SIZE]
+            embedded_batch = await loop.run_in_executor(None, embed_chunks, batch)
+
+            async with AsyncSessionLocal() as db:
+                chunks_created += await insert_chunks(db, repo_id, embedded_batch)
+                await update_repo(
+                    db,
+                    repo_id,
+                    status="embedding",
+                    files_processed=files_processed,
+                    chunks_created=chunks_created,
+                )
+                await db.commit()
 
         adjacency = parse_all_imports(files, repo_path)
         async with AsyncSessionLocal() as db:
@@ -103,7 +119,14 @@ async def run_ingestion(repo_url: str, repo_id: str) -> None:
             error_msg = error_msg[:500] + " ... [truncated]"
         log.error("ingest_failed", repo_id=repo_id, error=error_msg)
         async with AsyncSessionLocal() as db:
-            await update_repo(db, repo_id, status="failed", error_message=error_msg)
+            await update_repo(
+                db,
+                repo_id,
+                status="failed",
+                files_processed=files_processed,
+                chunks_created=chunks_created,
+                error_message=error_msg,
+            )
             await db.commit()
 
     finally:
